@@ -1,10 +1,10 @@
-FROM python:3.8
+FROM continuumio/miniconda3
 MAINTAINER Vishnu Menon
 
-COPY requirements.txt .
+WORKDIR /home/vishnum/source/MusicGenerator
 
-RUN pip install -r requirements.txt
+COPY . .
 
-# Comment
-COPY src/ .
+RUN conda install --file requirements.txt
 
+CMD ["python", "./src/main.py"]
