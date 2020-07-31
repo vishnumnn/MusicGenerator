@@ -1,2 +1,2 @@
-*.mxl
-*.mid
+music/
+src/__pycache__

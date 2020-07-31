@@ -9,7 +9,7 @@ from keras.layers import Dense
 from keras.utils import plot_model
 from keras.layers import Activation
 from music21 import *
-import math
+import math, os
 from numpy.random import choice
 
 ## Get notes and rests per instrument from score
@@ -149,7 +149,8 @@ def getSeqsAndLabels(scores, SeqLen):
 
 def cleanData(filepaths, sequenceLength):
     # Load Files and Extract streams
-    scores = list(map(lambda x: converter.parse('''../music''' + x).parts.stream(), filepaths))
+    dir = os.getcwd()
+    scores = list(map(lambda x: converter.parse(dir + '''/music/''' + x).parts.stream(), filepaths))
     return getSeqsAndLabels(scores, sequenceLength)
 
 def createAndTrainData(Seqs, Labels):
@@ -163,7 +164,7 @@ def createAndTrainData(Seqs, Labels):
     model.add(LSTM(256, return_sequences=True))
     model.add(LSTM(256))
     model.add(Dense(Seqs.shape[2], activation = 'softmax'))
-    model.compile(loss='s_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
+    model.compile(loss='categorical_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
 
     ## Train on everything except the first 10 samples
     model.fit(Seqs[10:Seqs.shape[0]], Labels[10:Labels.shape[0]], epochs=80, batch_size=32)
