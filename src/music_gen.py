@@ -153,6 +153,7 @@ def cleanData(filepaths, sequenceLength):
     scores = list(map(lambda x: converter.parse(dir + '''/music/''' + x).parts.stream(), filepaths))
     return getSeqsAndLabels(scores, sequenceLength)
 
+## TODO: Write weights to file to not lose data when container closes ##
 def createAndTrainData(Seqs, Labels):
     ## Train Model
     model = Sequential()
