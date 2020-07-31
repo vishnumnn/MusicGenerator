@@ -149,7 +149,7 @@ def getSeqsAndLabels(scores, SeqLen):
 
 def cleanData(filepaths, sequenceLength):
     # Load Files and Extract streams
-    scores = list(map(lambda x: converter.parse(x).parts.stream(), filepaths))
+    scores = list(map(lambda x: converter.parse('''../music''' + x).parts.stream(), filepaths))
     return getSeqsAndLabels(scores, sequenceLength)
 
 def createAndTrainData(Seqs, Labels):
