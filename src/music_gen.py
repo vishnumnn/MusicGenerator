@@ -10,7 +10,12 @@ from keras.utils import plot_model
 from keras.layers import Activation
 from music21 import *
 import math, os
+from datetime import datetime
 from numpy.random import choice
+
+## CONSTANTS
+_DATE_TIME_FORMAT = "%d_%m_%Y_%H_%M_%S"
+_DATETIME = date_and_time = datetime.now().strftime(_DATE_TIME_FORMAT)
 
 ## Get notes and rests per instrument from score
 def notesAndRests(score):
@@ -153,8 +158,9 @@ def cleanData(filepaths, sequenceLength):
     scores = list(map(lambda x: converter.parse(dir + '''/music/''' + x).parts.stream(), filepaths))
     return getSeqsAndLabels(scores, sequenceLength)
 
-## TODO: Write weights to file to not lose data when container closes ##
-def createAndTrainData(Seqs, Labels):
+## Create the model and train it on the passed data. 
+## Write the model and weights to a json and hdf5 file respectively.
+def create_and_train_data(Seqs, Labels):
     ## Train Model
     model = Sequential()
     model.add(LSTM(
@@ -169,3 +175,51 @@ def createAndTrainData(Seqs, Labels):
 
     ## Train on everything except the first 10 samples
     model.fit(Seqs[10:Seqs.shape[0]], Labels[10:Labels.shape[0]], epochs=80, batch_size=32)
+
+    # serialize model to JSON
+    model_json = model.to_json()
+    
+    JSON_filepath = os.getcwd() + '''models/model_{0}.json'''.format(_DATETIME)
+    HDF5_filepath = os.getcwd() + '''models/weights_{0}.h5'''.format(_DATETIME)
+
+    # write model to json
+    with open(JSON_filepath, "w") as json_file:
+        json_file.write(model_json)
+    print("Wrote model to JSON")
+
+    # serialize weights to HDF5
+    model.save_weights(HDF5_filepath)
+    print("Saved weights to hdf5")
+
+    return (JSON_filepath, HDF5_filepath)
+
+def predict_with_saved_weights(json_path, h5_path, seed_data, number_of_notes):
+    ## seed_data is a 2 dimensional input (sequence of one-hot-encoded notes)
+    model.compile(loss='categorical_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
+    inp = seed_data.tolist()
+    predictions = []
+    i = 0
+    while(i < number_of_notes):
+        inpNP = np.asarray(inp)
+        pred = model.predict(np.reshape(inpNP, (1,inpNP.shape[0],inpNP.shape[1])))
+        ## Currently only chooses the maximum of the predicted array for storage
+        inp.append(pred[0])
+        draw = np.random.choice(np.arange(0,inpNP.shape[1]),p=pred[0], replace = True)
+        predictions.append(draw)
+        inp = inp[1:len(inp)]
+        i += 1        
+    return predictions
+
+def create_MIDI_file(midis):
+    s = stream.Stream()
+    for m in midis:
+        p = pitch.Pitch(m)
+        n = note.Note()
+        n.pitch = p
+        n.duration = duration.Duration(quarterLength = 1)
+        s.append(n)
+    # speed up piece by factor of 2
+    stream_to_write = s.augmentOrDiminish(0.50)
+    # write to midi file
+    MIDI_filepath = os.getcwd() + '''output/music_gen_output_{0}.mid'''.format(_DATETIME)
+    stream_to_write.write('midi', fp= MIDI_filepath)

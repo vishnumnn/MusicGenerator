@@ -13,4 +13,4 @@ Seqs, Labels = music_gen.cleanData(PATHS, 50)
 print('''Overall shape of sequences data {0}'''.format(Seqs.shape))
 
 # Create and Train call
-#music_gen.createAndTrainData(Seqs, Labels)
+# music_gen.create_and_train_data(Seqs, Labels)
