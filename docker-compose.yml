@@ -1,0 +1,13 @@
+version: '3.2'
+services:
+  service:
+    image: "vishnumnn/music_generator"
+    volumes:
+      - type: bind
+        source: ./src
+        target: /home/vishnum/source/MusicGenerator/src
+      - type: volume
+        source: volume
+        target: /home/vishnum/source/MusicGenerator/models
+volumes:
+  volume:
