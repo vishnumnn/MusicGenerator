@@ -6,8 +6,9 @@ services:
       - type: bind
         source: ./src
         target: /home/vishnum/source/MusicGenerator/src
-      - type: volume
-        source: volume
+      - type: bind
+        source: ./output
+        target: /home/vishnum/source/MusicGenerator/output
+      - type: bind
+        source: ./models
         target: /home/vishnum/source/MusicGenerator/models
-volumes:
-  volume:

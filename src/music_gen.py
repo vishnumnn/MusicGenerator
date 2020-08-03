@@ -174,7 +174,7 @@ def create_and_train_data(Seqs, Labels):
     model.compile(loss='categorical_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
 
     ## Train on everything except the first 10 samples
-    model.fit(Seqs[10:Seqs.shape[0]], Labels[10:Labels.shape[0]], epochs=80, batch_size=32)
+    model.fit(Seqs, Labels, epochs=80, batch_size=32)
 
     # serialize model to JSON
     model_json = model.to_json()
