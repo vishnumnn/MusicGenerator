@@ -3,6 +3,7 @@ import numpy as np
 import keras
 import tensorflow as tf
 from keras.models import Sequential
+from keras.models import model_from_json
 from keras.layers import LSTM
 from keras.layers import Dropout
 from keras.layers import Dense
@@ -174,13 +175,13 @@ def create_and_train_data(Seqs, Labels):
     model.compile(loss='categorical_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
 
     ## Train on everything except the first 10 samples
-    model.fit(Seqs, Labels, epochs=80, batch_size=32)
+    model.fit(Seqs, Labels, epochs = 60, batch_size = 32)
 
     # serialize model to JSON
     model_json = model.to_json()
     
-    JSON_filepath = os.getcwd() + '''models/model_{0}.json'''.format(_DATETIME)
-    HDF5_filepath = os.getcwd() + '''models/weights_{0}.h5'''.format(_DATETIME)
+    JSON_filepath = os.getcwd() + '''/models/model_{0}.json'''.format(_DATETIME)
+    HDF5_filepath = os.getcwd() + '''/models/weights_{0}.h5'''.format(_DATETIME)
 
     # write model to json
     with open(JSON_filepath, "w") as json_file:
@@ -195,7 +196,18 @@ def create_and_train_data(Seqs, Labels):
 
 def predict_with_saved_weights(json_path, h5_path, seed_data, number_of_notes):
     ## seed_data is a 2 dimensional input (sequence of one-hot-encoded notes)
+    # Load model
+    json_file = open(json_path, 'r')
+    model_json = json_file.read()
+    json_file.close()
+    model = model_from_json(model_json)
+
+    # Load weights into model
+    model.load_weights(h5_path)
+
+    # compile model
     model.compile(loss='categorical_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
+
     inp = seed_data.tolist()
     predictions = []
     i = 0
@@ -210,9 +222,9 @@ def predict_with_saved_weights(json_path, h5_path, seed_data, number_of_notes):
         i += 1        
     return predictions
 
-def create_MIDI_file(midis):
+def create_MIDI_file(predicted_notes):
     s = stream.Stream()
-    for m in midis:
+    for m in predicted_notes:
         p = pitch.Pitch(m)
         n = note.Note()
         n.pitch = p
@@ -221,5 +233,5 @@ def create_MIDI_file(midis):
     # speed up piece by factor of 2
     stream_to_write = s.augmentOrDiminish(0.50)
     # write to midi file
-    MIDI_filepath = os.getcwd() + '''output/music_gen_output_{0}.mid'''.format(_DATETIME)
+    MIDI_filepath = os.getcwd() + '''/output/music_gen_output_{0}.mid'''.format(_DATETIME)
     stream_to_write.write('midi', fp= MIDI_filepath)

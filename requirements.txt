@@ -39,6 +39,7 @@ https://repo.anaconda.com/pkgs/main/linux-64/pysocks-1.7.1-py36_0.conda
 https://repo.anaconda.com/pkgs/main/linux-64/pyyaml-5.3.1-py36h7b6447c_1.conda
 https://repo.anaconda.com/pkgs/main/noarch/six-1.15.0-py_0.conda
 https://repo.anaconda.com/pkgs/main/linux-64/termcolor-1.1.0-py36_1.conda
+https://repo.anaconda.com/pkgs/main/noarch/threadpoolctl-2.1.0-pyh5ca1d4c_0.conda
 https://repo.anaconda.com/pkgs/main/noarch/werkzeug-1.0.1-py_0.conda
 https://repo.anaconda.com/pkgs/main/linux-64/wrapt-1.12.1-py36h7b6447c_1.conda
 https://repo.anaconda.com/pkgs/main/linux-64/absl-py-0.9.0-py36_0.conda
@@ -53,6 +54,7 @@ https://repo.anaconda.com/pkgs/main/linux-64/brotlipy-0.7.0-py36h7b6447c_1000.co
 https://repo.anaconda.com/pkgs/main/linux-64/cryptography-2.9.2-py36h1ba5d50_0.conda
 https://repo.anaconda.com/pkgs/main/noarch/google-auth-1.17.2-py_0.conda
 https://repo.anaconda.com/pkgs/main/linux-64/grpcio-1.27.2-py36hf8bcb03_0.conda
+https://repo.anaconda.com/pkgs/main/noarch/joblib-0.16.0-py_0.conda
 https://repo.anaconda.com/pkgs/main/linux-64/markdown-3.1.1-py36_0.conda
 https://repo.anaconda.com/pkgs/main/linux-64/numpy-base-1.18.5-py36hde5b4d6_0.conda
 https://repo.anaconda.com/pkgs/main/linux-64/protobuf-3.12.3-py36he6710b0_0.conda
@@ -74,6 +76,7 @@ https://repo.anaconda.com/pkgs/main/noarch/opt_einsum-3.1.0-py_0.conda
 https://repo.anaconda.com/pkgs/main/linux-64/scipy-1.5.0-py36h0b6359f_0.conda
 https://repo.anaconda.com/pkgs/main/noarch/tensorboard-2.2.1-pyh532a8cf_0.conda
 https://repo.anaconda.com/pkgs/main/noarch/keras-preprocessing-1.1.0-py_1.conda
+https://repo.anaconda.com/pkgs/main/linux-64/scikit-learn-0.23.1-py36h423224d_0.conda
 https://repo.anaconda.com/pkgs/main/linux-64/tensorflow-base-2.2.0-mkl_py36hd506778_0.conda
 https://repo.anaconda.com/pkgs/main/noarch/tensorflow-estimator-2.2.0-pyh208ff02_0.conda
 https://repo.anaconda.com/pkgs/main/linux-64/tensorflow-2.2.0-mkl_py36h5a57954_0.conda
