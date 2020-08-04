@@ -12,3 +12,6 @@ services:
       - type: bind
         source: ./models
         target: /home/vishnum/source/MusicGenerator/models
+      - type: bind
+        source: ./music
+        target: /home/vishnum/source/MusicGenerator/music

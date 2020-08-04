@@ -2,9 +2,9 @@ import music_gen
 from sklearn.model_selection import train_test_split
 
 ## File lists
-PATHS = ['Fantasie_Impromptu.mid',
+PATHS = ['Fantasie_Impromptu.mid', "Mephisto_Waltz_No._1_S._514.mxl",
          'Moonlight_Sonata_3rd_Movement_-_Ludwig_van_Beethoven.mxl', 'Paganini_Caprice_No_5_in_A_minor.mxl',
-        'Liszt_Romance_S._169.mxl']
+        'Liszt_Romance_S._169.mxl', 'Musical_Moment.mxl','Solo_Violin_Sonata_No._1_in_G_Minor_-_J._S._Bach_BWV_1001.mxl']
 ## Includes vitali chaconne in addition to paths
 PATHS_2 = ['Solo_Violin_Sonata_No._1_in_G_Minor_-_J._S._Bach_BWV_1001.mxl',
          'Moonlight_Sonata_3rd_Movement_-_Ludwig_van_Beethoven.mxl', 'Paganini_Caprice_No_5_in_A_minor.mxl',
@@ -24,4 +24,4 @@ m_filepath, w_fliepath = music_gen.create_and_train_model_V2(Train_Sequences, Tr
 predictions = music_gen.predict_with_saved_weights_V2(m_filepath, w_fliepath, Test_Sequences[5], 400)
 
 # Write prediction in midi format
-music_gen.create_MIDI_file(predictions)
+music_gen.create_MIDI_file_multilabel(predictions)

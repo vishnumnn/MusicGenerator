@@ -20,4 +20,4 @@ print('''Overall shape of sequences data {0}'''.format(Seqs.shape))
 predictions = music_gen.predict_with_saved_weights_V2(sys.argv[1], sys.argv[2], Seqs[25], int(sys.argv[3]))
 
 # Write prediction in midi format
-music_gen.create_MIDI_file(predictions)
+music_gen.create_MIDI_file_multilabel(predictions)
