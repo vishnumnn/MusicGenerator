@@ -1,4 +1,6 @@
+src/.vs/
 music/
 src/__pycache__
 output/
 models/
+*.ipynb

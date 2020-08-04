@@ -17,7 +17,7 @@ Seqs, Labels = music_gen.cleanData(PATHS_3, 50)
 print('''Overall shape of sequences data {0}'''.format(Seqs.shape))
 
 # Pick a random seed sequence to generate predictions (could test multiple seed prediction in future)
-predictions = music_gen.predict_with_saved_weights(sys.argv[1], sys.argv[2], Seqs[25], int(sys.argv[3]))
+predictions = music_gen.predict_with_saved_weights_V2(sys.argv[1], sys.argv[2], Seqs[25], int(sys.argv[3]))
 
 # Write prediction in midi format
 music_gen.create_MIDI_file(predictions)
