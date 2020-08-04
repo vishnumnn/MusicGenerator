@@ -17,7 +17,7 @@ from numpy.random import choice
 ## CONSTANTS
 _DATE_TIME_FORMAT = "%d_%m_%Y_%H_%M_%S"
 _DATETIME = date_and_time = datetime.now().strftime(_DATE_TIME_FORMAT)
-CHOOSING_CUTOFF = 0.7
+CHOOSING_CUTOFF = 0.25
 
 ## Get notes and rests per instrument from score
 def notesAndRests(score):
@@ -210,7 +210,7 @@ def create_and_train_model_V2(Seqs, Labels):
     model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
 
     ## Train on everything except the first 10 samples
-    model.fit(Seqs, Labels, epochs = 60, batch_size = 32)
+    model.fit(Seqs, Labels, epochs = 80, batch_size = 32)
 
     # serialize model to JSON
     model_json = model.to_json()
@@ -278,9 +278,17 @@ def predict_with_saved_weights_V2(json_path, h5_path, seed_data, number_of_notes
     while(i < number_of_notes):
         inpNP = np.asarray(inp)
         pred = model.predict(np.reshape(inpNP, (1,inpNP.shape[0],inpNP.shape[1])))
-        ## Currently only chooses the maximum of the predicted array for storage
+        # Currently only chooses the maximum of the predicted array for storage
         inp.append(pred[0])
-        draw = np.argwhere(pred[0] >= CHOOSING_CUTOFF)
+        ## TODO: Take the highest value. Remove the notes above and below it. Then choose all the notes that are within 0.15*(it's probability)
+        ## points
+        prediction = pred[0]
+
+        draw = np.where(prediction == np.amax(prediction))[0][0]
+        args_to_remove = [draw, draw - 1, draw + 1]
+        prediction = np.delete(prediction, args_to_remove)
+        draw = np.append(prediction[np.where(prediction > 0.5*draw)], draw)
+
         predictions.append(draw)
         inp = inp[1:len(inp)]
         i += 1        
@@ -297,6 +305,32 @@ def create_MIDI_file(predicted_notes):
             n.pitch = p
         n.duration = duration.Duration(quarterLength = 1)
         s.append(n)
+    # speed up piece by factor of 2
+    stream_to_write = s.augmentOrDiminish(0.50)
+    # write to midi file
+    MIDI_filepath = os.getcwd() + '''/output/music_gen_output_{0}.mid'''.format(_DATETIME)
+    stream_to_write.write('midi', fp= MIDI_filepath)
+
+def create_MIDI_file_multilabel(predicted_notes):
+    print(predicted_notes)
+    s = stream.Stream()
+    for m in predicted_notes:
+        arr = m[np.where(m != 101)]
+        if(arr.size == 0):
+            s.append(note.Rest())
+            continue
+        if(arr.size == 1):
+            n = note.Note()
+            n.pitch = pitch.Pitch(arr[0])
+            s.append(n)
+            continue
+        if(arr.size > 1):
+            midis = arr.tolist()
+            pitches = list(map(lambda x: pitch.Pitch(x), midis))
+            c = chord.Chord(pitches)
+            s.append(c)
+        else:
+            print("something went wrong m: {0} arr: {1}".format(m, arr))
     # speed up piece by factor of 2
     stream_to_write = s.augmentOrDiminish(0.50)
     # write to midi file
