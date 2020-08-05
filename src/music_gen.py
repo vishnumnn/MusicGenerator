@@ -204,7 +204,7 @@ def train_batch_generator(scores, mode):
     # BE WARY OF MODE BEING EVAL
     # input is the set of scores
     batch = np.ndarray(shape = (_BATCH_SIZE,50,106))
-    label = np.ndarray(shape = (_BATCH_SIZE,50,106))
+    label = np.ndarray(shape = (_BATCH_SIZE,106))
     
     score_counter = 0
     Seqs, Labels = getSeqsAndLabels([scores[score_counter]], 50)
@@ -214,11 +214,11 @@ def train_batch_generator(scores, mode):
             batch[i] = Seqs[pointer]
             label[i] = Labels[pointer]
             pointer += 1
-            if(pointer >= Seqs.size):
+            if(pointer >= Seqs.shape[0]):
                 score_counter += 1
                 Seqs, Labels = getSeqsAndLabels([scores[score_counter]], 50)
                 pointer = 0
-        print(batch,label)
+        print(batch.shape,label.shape)
         yield batch, label
             
 ## Creates and trains model on multiple labels on multiple categories
@@ -242,6 +242,7 @@ def create_and_train_model_V2(paths):
         filepath= os.getcwd() + '/models/chkpts/ckpt-acc={accuracy:.2f}',
         save_freq= 300)
     ]
+
     # Set up generator
     scores = list(map(lambda x: converter.parse(os.getcwd() + '''/music/''' + x).parts.stream(), paths))
     batch_generator = train_batch_generator(scores, "train")
