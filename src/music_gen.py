@@ -199,16 +199,29 @@ def create_and_train_model(Seqs, Labels):
     return (JSON_filepath, HDF5_filepath)
 
 ## Cleaned data generator
-def train_batch_generator(input, mode):
+def train_batch_generator(scores, mode):
+    # BE WARY OF MODE BEING EVAL
     # input is the set of scores
     batch = np.ndarray(shape = (_BATCH_SIZE,50,106), dtype = int)
     label = np.ndarray(shape = (1,50,106), dtype = int)
     
-    for i in range(_BATCH_SIZE):
-        to_add = 
+    score_counter = 0
+    Seqs, Labels = getSeqsAndLabelsForSingleScore(score[score_counter])
+    pointer = 0
+    while(True):
+        for i in range(_BATCH_SIZE):
+            batch[i] = Seqs[pointer]
+            label[i] = Labels[pointer]
+            pointer += 1
+            if(pointer >= Seqs.size):
+                score_counter += 1
+                Seqs, Labels = getSeqsAndLabelsForSingleScore(score_counter)
+                pointer = 0
+        yield batch, label
+            
 ## Creates and trains model on multiple labels on multiple categories
-def create_and_train_model_V2(Seqs, Labels):
-    ## Train Model
+def create_and_train_model_V2(paths):
+    # Train Model
     model = Sequential()
     model.add(LSTM(
         256,
@@ -227,9 +240,11 @@ def create_and_train_model_V2(Seqs, Labels):
         filepath=checkpoint_dir + '/ckpt-acc={accuracy:.2f}',
         save_freq= 300)
     ]
-
-    ## Train on everything except the first 10 samples
-    model.fit(Seqs, Labels, epochs = _EPOCHS, batch_size = _BATCH_SIZE, callbacks = callbacks)
+    # Set up generator
+    scores = list(map(lambda x: converter.parse(direc + '''/music/''' + x).parts.stream(), paths))
+    batch_generator = train_batch_generator(scores, "train")
+    # Train on everything except the first 10 samples
+    model.fit(generator = batch_generator, epochs = _EPOCHS, batch_size = _BATCH_SIZE, callbacks = callbacks)
 
     # serialize model to JSON
     model_json = model.to_json()
