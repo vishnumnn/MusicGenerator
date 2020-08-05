@@ -1,7 +1,6 @@
 ## Imports 1
 import numpy as np
-import keras
-import tensorflow as tf
+from tensorflow import keras
 from keras.models import Sequential
 from keras.models import model_from_json
 from keras.layers import LSTM
@@ -109,7 +108,7 @@ def getData(score):
         intermediate = groupPitchesByOffset(intermediate) 
         intermediate = reconstructListOfNotesAndDurations(intermediate)
         intermediate = noteToMidiNumbers(intermediate)
-        print('''Number of notes: {0}'''.format(intermediate.shape[0]))
+        # print('''Number of notes: {0}'''.format(intermediate.shape[0]))
         return intermediate
 
 ## Group Multi-Label Encodings into Sequences and Corresponding Labels
@@ -149,14 +148,11 @@ def getSeqsAndLabelsPermutations(data, SeqLen):
 
 ## Outputs a ndarray of (Num Sequences, Sequence Length, Num features) schema
 def getSeqsAndLabels(scores, SeqLen):
-    print(scores)
     SeqSet, SeqLabels = getSeqsAndLabelsPermutations(getData(scores.pop(0)), SeqLen)
-    print(SeqSet.shape, SeqLabels.shape)
     for each in scores:
         D, L = getSeqsAndLabelsPermutations(getData(each), SeqLen)
         SeqSet = np.concatenate((SeqSet, D))
         SeqLabels = np.concatenate((SeqLabels, L))
-        print(SeqSet.shape, SeqLabels.shape)
     return (SeqSet, SeqLabels)
 
 def cleanData(filepaths, sequenceLength):
@@ -218,7 +214,6 @@ def train_batch_generator(scores, mode):
                 score_counter += 1
                 Seqs, Labels = getSeqsAndLabels([scores[score_counter]], 50)
                 pointer = 0
-        print(batch.shape,label.shape)
         yield batch, label
             
 ## Creates and trains model on multiple labels on multiple categories
@@ -247,7 +242,7 @@ def create_and_train_model_V2(paths):
     scores = list(map(lambda x: converter.parse(os.getcwd() + '''/music/''' + x).parts.stream(), paths))
     batch_generator = train_batch_generator(scores, "train")
     # Train on everything except the first 10 samples
-    model.fit(x = batch_generator, epochs = _EPOCHS, steps_per_epoch = _DATA_COUNT/_BATCH_SIZE, callbacks = callbacks)
+    model.fit(x = batch_generator, shuffle = TRUE, epochs = _EPOCHS, steps_per_epoch = _DATA_COUNT/_BATCH_SIZE, callbacks = callbacks)
 
     # serialize model to JSON
     model_json = model.to_json()
@@ -326,7 +321,6 @@ def predict_with_saved_weights_V2(json_path, h5_path, seed_data, number_of_notes
         prediction = np.delete(prediction, args_to_remove)
 
         chord_notes = np.where(prediction > _CHORD_MULTIPLIER*draw_prob)[0]
-        print(chord_notes)
         draw = np.append(chord_notes, draw)
 
         predictions.append(draw)

@@ -17,7 +17,7 @@ PATHS_3 = ['Vitali_Chaconne_Solo_Violin.mxl']
 Seqs, Labels = music_gen.cleanData(PATHS_3, 50)
 ###
 
-# Clean data
+# # Clean data
 # Seqs, Labels = music_gen.cleanData(PATHS, 50)
 # print('''Overall shape of sequences data {0}'''.format(Seqs.shape))
 
