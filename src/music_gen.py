@@ -218,6 +218,7 @@ def train_batch_generator(scores, mode):
                 score_counter += 1
                 Seqs, Labels = getSeqsAndLabels([scores[score_counter]], 50)
                 pointer = 0
+        print(batch,label)
         yield batch, label
             
 ## Creates and trains model on multiple labels on multiple categories
@@ -235,7 +236,7 @@ def create_and_train_model_V2(paths):
     model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
 
     callbacks = [
-    # This callback saves a SavedModel every 100 batches.
+    # This callback saves a SavedModel every 300 batches.
     # We include the training loss in the folder name.
     keras.callbacks.ModelCheckpoint(
         filepath= os.getcwd() + '/models/chkpts/ckpt-acc={accuracy:.2f}',
