@@ -231,18 +231,17 @@ def create_and_train_model_V2(paths):
     model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
 
     callbacks = [
-    # This callback saves a SavedModel every 300 batches.
-    # We include the training loss in the folder name.
+    # This callback saves a SavedModel every 3490 batches (roughly equates to 10 epochs at 11k training data and batch size 32).
     keras.callbacks.ModelCheckpoint(
         filepath= os.getcwd() + '/models/chkpts/ckpt-acc={accuracy:.2f}',
-        save_freq= 300)
+        save_freq= 3490)
     ]
 
     # Set up generator
     scores = list(map(lambda x: converter.parse(os.getcwd() + '''/music/''' + x).parts.stream(), paths))
     batch_generator = train_batch_generator(scores, "train")
     # Train on everything except the first 10 samples
-    model.fit(x = batch_generator, shuffle = TRUE, epochs = _EPOCHS, steps_per_epoch = _DATA_COUNT/_BATCH_SIZE, callbacks = callbacks)
+    model.fit(x = batch_generator, shuffle = True, epochs = _EPOCHS, steps_per_epoch = _DATA_COUNT/_BATCH_SIZE, callbacks = callbacks)
 
     # serialize model to JSON
     model_json = model.to_json()
