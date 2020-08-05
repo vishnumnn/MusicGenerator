@@ -25,11 +25,19 @@ Seqs, Labels = music_gen.cleanData(PATHS_3, 50)
 # Train_Sequences, Test_Sequences, Train_Labels, Test_Labels = train_test_split(Seqs, Labels, test_size = 0.004, random_state = 56)
 
 # Create and Train model (saves model and weights to disk)
+<<<<<<< HEAD
 m_filepath, w_filepath = music_gen.create_and_train_model_V2(PATHS)
 
 
 # Pick a random seed sequence to generate predictions (could test multiple seed prediction in future)
 predictions = music_gen.predict_with_saved_weights_V2(m_filepath, w_fliepath, Seqs[167], 400)
+=======
+m_filepath, w_fliepath = music_gen.create_and_train_model_V2(paths)
+
+
+# Pick a random seed sequence to generate predictions (could test multiple seed prediction in future)
+predictions = music_gen.predict_with_saved_weights_V2(m_filepath, w_fliepath, [5], 400)
+>>>>>>> 3212c124854c367368a49d1bdc5284fda69c4557
 
 # Write prediction in midi format
 music_gen.create_MIDI_file_multilabel(predictions)
