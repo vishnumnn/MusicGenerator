@@ -18,6 +18,9 @@ from numpy.random import choice
 _DATE_TIME_FORMAT = "%d_%m_%Y_%H_%M_%S"
 _DATETIME = date_and_time = datetime.now().strftime(_DATE_TIME_FORMAT)
 _CHORD_MULTIPLIER = 0.5
+_NOTE_CATS = 106
+_BATCH_SIZE = 32
+_EPOCHS = 80
 
 ## Get notes and rests per instrument from score
 def notesAndRests(score):
@@ -87,10 +90,10 @@ def reconstructListOfNotesAndDurations(tuplesArray):
 ## Convert note-dur list to midi only multi label encoding
 def noteToMidiNumbers(nList):
     # 88 to represent 88 midi encodings and 1 for rest
-    data = np.zeros((len(nList), 102))
+    data = np.zeros((len(nList), _NOTE_CATS))
     for i in range(len(nList)):
         if(nList[i].isRest):
-            data[i,101] = 1
+            data[i,_NOTE_CATS - 1] = 1
         else:
             pitches = nList[i].pitches
             for e in pitches:
@@ -195,6 +198,14 @@ def create_and_train_model(Seqs, Labels):
 
     return (JSON_filepath, HDF5_filepath)
 
+## Cleaned data generator
+def train_batch_generator(input, mode):
+    # input is the set of scores
+    batch = np.ndarray(shape = (_BATCH_SIZE,50,106), dtype = int)
+    label = np.ndarray(shape = (1,50,106), dtype = int)
+    
+    for i in range(_BATCH_SIZE):
+        to_add = 
 ## Creates and trains model on multiple labels on multiple categories
 def create_and_train_model_V2(Seqs, Labels):
     ## Train Model
@@ -209,8 +220,16 @@ def create_and_train_model_V2(Seqs, Labels):
     model.add(Dense(Seqs.shape[2], activation = 'sigmoid'))
     model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
 
+    callbacks = [
+    # This callback saves a SavedModel every 100 batches.
+    # We include the training loss in the folder name.
+    keras.callbacks.ModelCheckpoint(
+        filepath=checkpoint_dir + '/ckpt-acc={accuracy:.2f}',
+        save_freq= 300)
+    ]
+
     ## Train on everything except the first 10 samples
-    model.fit(Seqs, Labels, epochs = 80, batch_size = 32)
+    model.fit(Seqs, Labels, epochs = _EPOCHS, batch_size = _BATCH_SIZE, callbacks = callbacks)
 
     # serialize model to JSON
     model_json = model.to_json()
@@ -280,8 +299,6 @@ def predict_with_saved_weights_V2(json_path, h5_path, seed_data, number_of_notes
         pred = model.predict(np.reshape(inpNP, (1,inpNP.shape[0],inpNP.shape[1])))
         # Currently only chooses the maximum of the predicted array for storage
         inp.append(pred[0])
-        ## TODO: Take the highest value. Remove the notes above and below it. Then choose all the notes that are within 0.15*(it's probability)
-        ## points
         prediction = pred[0]
 
         draw = np.where(prediction == np.amax(prediction))[0][0]
@@ -302,7 +319,7 @@ def predict_with_saved_weights_V2(json_path, h5_path, seed_data, number_of_notes
 def create_MIDI_file(predicted_notes):
     s = stream.Stream()
     for m in predicted_notes:
-        if(m == 101):
+        if(m == _NOTE_CATS - 1):
             n = note.Rest()
         else:
             p = pitch.Pitch(m)
@@ -319,7 +336,7 @@ def create_MIDI_file(predicted_notes):
 def create_MIDI_file_multilabel(predicted_notes):
     s = stream.Stream()
     for m in predicted_notes:
-        arr = m[np.where(m != 101)]
+        arr = m[np.where(m != _NOTE_CATS - 1)]
         if(arr.size == 0):
             s.append(note.Rest())
             continue
@@ -340,3 +357,17 @@ def create_MIDI_file_multilabel(predicted_notes):
     # write to midi file
     MIDI_filepath = os.getcwd() + '''/output/music_gen_output_{0}.mid'''.format(_DATETIME)
     stream_to_write.write('midi', fp= MIDI_filepath)
+
+
+## MEMORY OPTIMIZATIONS
+def make_or_restore_model():
+    # Either restore the latest model, or create a fresh one
+    # if there is no checkpoint available.
+    checkpoints = [checkpoint_dir + '/' + name
+                   for name in os.listdir(checkpoint_dir)]
+    if checkpoints:
+        latest_checkpoint = max(checkpoints, key=os.path.getctime)
+        print('Restoring from', latest_checkpoint)
+        return keras.models.load_model(latest_checkpoint)
+    print('Creating a new model')
+    return make_model()
