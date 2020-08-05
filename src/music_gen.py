@@ -21,6 +21,7 @@ _CHORD_MULTIPLIER = 0.5
 _NOTE_CATS = 106
 _BATCH_SIZE = 32
 _EPOCHS = 80
+_DATA_COUNT = 11172
 
 ## Get notes and rests per instrument from score
 def notesAndRests(score):
@@ -148,6 +149,7 @@ def getSeqsAndLabelsPermutations(data, SeqLen):
 
 ## Outputs a ndarray of (Num Sequences, Sequence Length, Num features) schema
 def getSeqsAndLabels(scores, SeqLen):
+    print(scores)
     SeqSet, SeqLabels = getSeqsAndLabelsPermutations(getData(scores.pop(0)), SeqLen)
     print(SeqSet.shape, SeqLabels.shape)
     for each in scores:
@@ -159,8 +161,7 @@ def getSeqsAndLabels(scores, SeqLen):
 
 def cleanData(filepaths, sequenceLength):
     # Load Files and Extract streams
-    direc = os.getcwd()
-    scores = list(map(lambda x: converter.parse(direc + '''/music/''' + x).parts.stream(), filepaths))
+    scores = list(map(lambda x: converter.parse(os.getcwd() + '''/music/''' + x).parts.stream(), filepaths))
     return getSeqsAndLabels(scores, sequenceLength)
 
 ## Create the model and train it on the passed data. 
@@ -199,37 +200,52 @@ def create_and_train_model(Seqs, Labels):
     return (JSON_filepath, HDF5_filepath)
 
 ## Cleaned data generator
-def train_batch_generator(input, mode):
+def train_batch_generator(scores, mode):
+    # BE WARY OF MODE BEING EVAL
     # input is the set of scores
-    batch = np.ndarray(shape = (_BATCH_SIZE,50,106), dtype = int)
-    label = np.ndarray(shape = (1,50,106), dtype = int)
+    batch = np.ndarray(shape = (_BATCH_SIZE,50,106))
+    label = np.ndarray(shape = (_BATCH_SIZE,50,106))
     
-    for i in range(_BATCH_SIZE):
-        to_add = 
+    score_counter = 0
+    Seqs, Labels = getSeqsAndLabels([scores[score_counter]], 50)
+    pointer = 0
+    while(True):
+        for i in range(_BATCH_SIZE):
+            batch[i] = Seqs[pointer]
+            label[i] = Labels[pointer]
+            pointer += 1
+            if(pointer >= Seqs.size):
+                score_counter += 1
+                Seqs, Labels = getSeqsAndLabels([scores[score_counter]], 50)
+                pointer = 0
+        yield batch, label
+            
 ## Creates and trains model on multiple labels on multiple categories
-def create_and_train_model_V2(Seqs, Labels):
-    ## Train Model
+def create_and_train_model_V2(paths):
+    # Train Model
     model = Sequential()
     model.add(LSTM(
         256,
-        input_shape=(Seqs.shape[1], Seqs.shape[2]),
+        input_shape=(50, _NOTE_CATS),
         return_sequences=True
     ))
     model.add(LSTM(256, return_sequences=True))
     model.add(LSTM(256))
-    model.add(Dense(Seqs.shape[2], activation = 'sigmoid'))
+    model.add(Dense(_NOTE_CATS, activation = 'sigmoid'))
     model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
 
     callbacks = [
     # This callback saves a SavedModel every 100 batches.
     # We include the training loss in the folder name.
     keras.callbacks.ModelCheckpoint(
-        filepath=checkpoint_dir + '/ckpt-acc={accuracy:.2f}',
+        filepath= os.getcwd() + '/models/chkpts/ckpt-acc={accuracy:.2f}',
         save_freq= 300)
     ]
-
-    ## Train on everything except the first 10 samples
-    model.fit(Seqs, Labels, epochs = _EPOCHS, batch_size = _BATCH_SIZE, callbacks = callbacks)
+    # Set up generator
+    scores = list(map(lambda x: converter.parse(os.getcwd() + '''/music/''' + x).parts.stream(), paths))
+    batch_generator = train_batch_generator(scores, "train")
+    # Train on everything except the first 10 samples
+    model.fit(x = batch_generator, epochs = _EPOCHS, steps_per_epoch = _DATA_COUNT/_BATCH_SIZE, callbacks = callbacks)
 
     # serialize model to JSON
     model_json = model.to_json()
