@@ -21,12 +21,13 @@ _CHORD_MULTIPLIER = 0.5
 _NOTE_CATS = 106
 _BATCH_SIZE = 32
 _EPOCHS = 80
-_DATA_COUNT = 11172
+_SEQUENCE_LENGTH = 16
+
 callbacks = [
-# This callback saves a SavedModel every 3490 batches (roughly equates to 10 epochs at 11k training data and batch size 32).
+# This callback saves a SavedModel every 8750 batches (roughly equates to 20 epochs at 14k training data and batch size 32).
 keras.callbacks.ModelCheckpoint(
     filepath= os.getcwd() + '/models/chkpts/ckpt-acc={accuracy:.2f}',
-    save_freq= 3490)
+    save_freq= 4375)
 ]
 ## Get notes and rests per instrument from score
 def notesAndRests(score):
@@ -178,12 +179,12 @@ def create_and_train_model(Seqs, Labels, Use_Checkpoint = False):
     if(model == None):
         model = Sequential()
         model.add(LSTM(
-            270,
-            input_shape=(50, _NOTE_CATS),
+            512,
+            input_shape=(_SEQUENCE_LENGTH, _NOTE_CATS),
             return_sequences=True
         ))
-        model.add(LSTM(270, return_sequences=True))
-        model.add(LSTM(270))
+        model.add(LSTM(512, return_sequences=True))
+        model.add(LSTM(512))
         model.add(Dense(_NOTE_CATS, activation = 'sigmoid'))
         model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
 
@@ -212,7 +213,7 @@ def train_batch_generator(scores, mode):
     # input is the set of scores
     
     score_counter = 0
-    Seqs, Labels = getSeqsAndLabels([scores[score_counter]], 50)
+    Seqs, Labels = getSeqsAndLabels([scores[score_counter]], _SEQUENCE_LENGTH)
     a = np.arange(Seqs.shape[0])
     remaining_data_count = 0
     while(True):
@@ -223,7 +224,7 @@ def train_batch_generator(scores, mode):
         if(a.size <= _BATCH_SIZE):
             remaining_data_count = a.size
             score_counter = 0 if (score_counter + 1) >= len(scores) else (score_counter + 1)
-            Seqs, Labels = getSeqsAndLabels([scores[score_counter]], 50)
+            Seqs, Labels = getSeqsAndLabels([scores[score_counter]], _SEQUENCE_LENGTH)
             a = np.arange(Seqs.shape[0])
         yield batch, label
             
@@ -237,7 +238,7 @@ def create_and_train_model_V2(paths, Use_Checkpoint = False):
         model = Sequential()
         model.add(LSTM(
             256,
-            input_shape=(50, _NOTE_CATS),
+            input_shape=(_SEQUENCE_LENGTH, _NOTE_CATS),
             return_sequences=True
         ))
         model.add(LSTM(256, return_sequences=True))
