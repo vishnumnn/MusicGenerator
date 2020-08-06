@@ -12,6 +12,7 @@ from music21 import *
 import math, os
 from datetime import datetime
 from numpy.random import choice
+import gc
 
 ## CONSTANTS
 _DATE_TIME_FORMAT = "%d_%m_%Y_%H_%M_%S"
@@ -21,7 +22,12 @@ _NOTE_CATS = 106
 _BATCH_SIZE = 32
 _EPOCHS = 80
 _DATA_COUNT = 11172
-
+callbacks = [
+# This callback saves a SavedModel every 3490 batches (roughly equates to 10 epochs at 11k training data and batch size 32).
+keras.callbacks.ModelCheckpoint(
+    filepath= os.getcwd() + '/models/chkpts/ckpt-acc={accuracy:.2f}',
+    save_freq= 3490)
+]
 ## Get notes and rests per instrument from score
 def notesAndRests(score):
     instruments = instrument.partitionByInstrument(score)
@@ -160,23 +166,28 @@ def cleanData(filepaths, sequenceLength):
     scores = list(map(lambda x: converter.parse(os.getcwd() + '''/music/''' + x).parts.stream(), filepaths))
     return getSeqsAndLabels(scores, sequenceLength)
 
-## Create the model and train it on the passed data. 
-## Write the model and weights to a json and hdf5 file respectively.
-def create_and_train_model(Seqs, Labels):
-    ## Train Model
-    model = Sequential()
-    model.add(LSTM(
-        256,
-        input_shape=(Seqs.shape[1], Seqs.shape[2]),
-        return_sequences=True
-    ))
-    model.add(LSTM(256, return_sequences=True))
-    model.add(LSTM(256))
-    model.add(Dense(Seqs.shape[2], activation = 'softmax'))
-    model.compile(loss='categorical_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
+# TODO: Experiment with deleting and recreating model each epoch to prevent memory leaks
+# TODO: Reduce sequence length to 16/32
+# TODO: Increase number of nodes in LSTM: 256 -> 270 -> 300 
+## Create and Train model without using generator to feed data.
+def create_and_train_model(Seqs, Labels, Use_Checkpoint = False):
+    # Train Model
+    model = None
+    if(Use_Checkpoint):
+        model = restore_model()
+    if(model == None):
+        model = Sequential()
+        model.add(LSTM(
+            270,
+            input_shape=(50, _NOTE_CATS),
+            return_sequences=True
+        ))
+        model.add(LSTM(270, return_sequences=True))
+        model.add(LSTM(270))
+        model.add(Dense(_NOTE_CATS, activation = 'sigmoid'))
+        model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
 
-    ## Train on everything except the first 10 samples
-    model.fit(Seqs, Labels, epochs = 60, batch_size = 32)
+    model.fit(Seqs, Labels, epochs = _EPOCHS, batch_size = _BATCH_SIZE, callbacks = callbacks)
 
     # serialize model to JSON
     model_json = model.to_json()
@@ -199,50 +210,45 @@ def create_and_train_model(Seqs, Labels):
 def train_batch_generator(scores, mode):
     # BE WARY OF MODE BEING EVAL
     # input is the set of scores
-    batch = np.ndarray(shape = (_BATCH_SIZE,50,106))
-    label = np.ndarray(shape = (_BATCH_SIZE,106))
     
     score_counter = 0
     Seqs, Labels = getSeqsAndLabels([scores[score_counter]], 50)
-    pointer = 0
+    a = np.arange(Seqs.shape[0])
+    remaining_data_count = 0
     while(True):
-        for i in range(_BATCH_SIZE):
-            batch[i] = Seqs[pointer]
-            label[i] = Labels[pointer]
-            pointer += 1
-            if(pointer >= Seqs.shape[0]):
-                score_counter += 1
-                Seqs, Labels = getSeqsAndLabels([scores[score_counter]], 50)
-                pointer = 0
+        indices = np.random.choice(a.size, _BATCH_SIZE - remaining_data_count, replace=False)
+        batch = Seqs[indices, :]
+        Labels = Seqs[indices, :]
+        a = np.delete(a, indices)
+        if(a.size <= _BATCH_SIZE):
+            remaining_data_count = a.size
+            score_counter = 0 if (score_counter + 1) >= len(scores) else (score_counter + 1)
+            Seqs, Labels = getSeqsAndLabels([scores[score_counter]], 50)
+            a = np.arange(Seqs.shape[0])
         yield batch, label
             
-## Creates and trains model on multiple labels on multiple categories
-def create_and_train_model_V2(paths):
-    # Train Model
-    model = Sequential()
-    model.add(LSTM(
-        256,
-        input_shape=(50, _NOTE_CATS),
-        return_sequences=True
-    ))
-    model.add(LSTM(256, return_sequences=True))
-    model.add(LSTM(256))
-    model.add(Dense(_NOTE_CATS, activation = 'sigmoid'))
-    model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
-
-    callbacks = [
-    # This callback saves a SavedModel every 3490 batches (roughly equates to 10 epochs at 11k training data and batch size 32).
-    keras.callbacks.ModelCheckpoint(
-        filepath= os.getcwd() + '/models/chkpts/ckpt-acc={accuracy:.2f}',
-        save_freq= 3490)
-    ]
+## Uses Generator to supply data. 
+def create_and_train_model_V2(paths, Use_Checkpoint = False):
+    # Train 
+    model = None
+    if(Use_Checkpoint):
+        model = restore_model()
+    if(model == None):
+        model = Sequential()
+        model.add(LSTM(
+            256,
+            input_shape=(50, _NOTE_CATS),
+            return_sequences=True
+        ))
+        model.add(LSTM(256, return_sequences=True))
+        model.add(LSTM(256))
+        model.add(Dense(_NOTE_CATS, activation = 'sigmoid'))
+        model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
 
     # Set up generator
     scores = list(map(lambda x: converter.parse(os.getcwd() + '''/music/''' + x).parts.stream(), paths))
     batch_generator = train_batch_generator(scores, "train")
-    # Train on everything except the first 10 samples
     model.fit(x = batch_generator, shuffle = True, epochs = _EPOCHS, steps_per_epoch = _DATA_COUNT/_BATCH_SIZE, callbacks = callbacks)
-
     # serialize model to JSON
     model_json = model.to_json()
     
@@ -288,7 +294,6 @@ def predict_with_saved_weights(json_path, h5_path, seed_data, number_of_notes):
         i += 1        
     return predictions
 
-## TODO: Test changing added note to what is there after choosing cutoff is applied
 def predict_with_saved_weights_V2(json_path, h5_path, seed_data, number_of_notes):
     ## seed_data is a 2 dimensional input (sequence of one-hot-encoded notes)
     # Load model
@@ -371,14 +376,14 @@ def create_MIDI_file_multilabel(predicted_notes):
 
 
 ## MEMORY OPTIMIZATIONS
-def make_or_restore_model():
+def restore_model():
     # Either restore the latest model, or create a fresh one
     # if there is no checkpoint available.
-    checkpoints = [checkpoint_dir + '/' + name
-                   for name in os.listdir(checkpoint_dir)]
+    chkpt_dir = os.getcwd() + '/models/chkpts/'
+    checkpoints = [chkpt_dir + name
+                   for name in os.listdir(chkpt_dir)]
     if checkpoints:
         latest_checkpoint = max(checkpoints, key=os.path.getctime)
         print('Restoring from', latest_checkpoint)
         return keras.models.load_model(latest_checkpoint)
-    print('Creating a new model')
-    return make_model()
+    return "no model found in checkpoints"
