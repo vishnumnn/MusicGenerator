@@ -14,7 +14,7 @@ from datetime import datetime
 from numpy.random import choice
 import gc
 
-## CONSTANTS
+## PARAMETER CONSTANTS
 _DATE_TIME_FORMAT = "%d_%m_%Y_%H_%M_%S"
 _DATETIME = date_and_time = datetime.now().strftime(_DATE_TIME_FORMAT)
 _CHORD_MULTIPLIER = 0.5
@@ -23,6 +23,10 @@ _BATCH_SIZE = 32
 _EPOCHS = 160
 _SEQUENCE_LENGTH = 16 #seq 50 @ 256 nodes # seq 16 @ 512 nodes
 _LSTM_NODE_COUNT = 512
+
+## NOTE VALUE CONSTANTS
+opt_array = [0.015625, 0.027777,0.03125, 0.041666,0.055555, 0.0625, 0.083333, 0.11111, 0.166666, 0.125, 0.25, 0.375, 0.5,0.75]
+
 
 callbacks = [
 # This callback saves a SavedModel every 8820 batches (roughly equates to 20 epochs at 14k training data and batch size 32).
@@ -111,7 +115,6 @@ def noteToMidiNumbers(nList, durList):
                 ## Comment the break IF YOU WANT TO ENCODE ALL NOTES IN A CHORD NOT JUST THE FIRST
                 # break
         data[i, _NOTE_CATS - 1] = durList[i]/max_dur
-        print(data[i, _NOTE_CATS - 1])
     return data
 
 def getData(score):
@@ -302,7 +305,6 @@ def predict_with_saved_weights_json(json_path, h5_path, seed_data, number_of_not
     ## seed_data is a 2 dimensional input (sequence of one-hot-encoded notes)
     # Load model
     model = restore_model_from_json(json_path, h5_path)
-
     inp = seed_data.tolist()
     predictions = []
     i = 0
@@ -328,19 +330,20 @@ def predict_with_saved_weights_json(json_path, h5_path, seed_data, number_of_not
         i += 1        
     return predictions
 
-def create_MIDI_file_multilabel(predicted_notes):
+def create_MIDI_file_multilabel(predicted_notes, tempo_scale):
     s = stream.Stream()
 
     for m,dur in predicted_notes:
         arr = m[np.where(m != _NOTE_CATS - 1)]
+        smoothed_duration = find_smoothed_duration(dur)
         if(arr.size == 0):
             note_to_add = note.Rest()
-            note_to_add.duration = duration.Duration(quarterLength = dur)
+            note_to_add.duration = duration.Duration(quarterLength = smoothed_duration)
             s.append()
             continue
         if(arr.size == 1):
             n = note.Note()
-            n.duration = duration.Duration(quarterLength = dur)
+            n.duration = duration.Duration(quarterLength = smoothed_duration)
             n.pitch = pitch.Pitch(arr[0])
             s.append(n)
             continue
@@ -348,12 +351,12 @@ def create_MIDI_file_multilabel(predicted_notes):
             midis = arr.tolist()
             pitches = list(map(lambda x: pitch.Pitch(x), midis))
             c = chord.Chord(pitches)
-            c.duration = duration.Duration(quarterLength = dur)
+            c.duration = duration.Duration(quarterLength = smoothed_duration)
             s.append(c)
         else:
             print("something went wrong m: {0} arr: {1}".format(m, arr))
     # speed up piece by factor of 2
-    stream_to_write = s.augmentOrDiminish(0.50)
+    stream_to_write = s.augmentOrDiminish(tempo_scale)
     # write to midi file
     MIDI_filepath = os.getcwd() + '''/output/music_gen_output_{0}.mid'''.format(_DATETIME)
     stream_to_write.write('midi', fp= MIDI_filepath)
@@ -384,3 +387,13 @@ def restore_model_from_json(json_path, h5_path):
     # compile model
     model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
     return model
+
+def find_smoothed_duration(dur):
+    smallest_diff_index = 0 
+    smallest_diff = abs(opt_array[0] - dur)
+    for index, e in enumerate(opt_array, 1):
+        diff = abs(dur - e)
+        if(diff < smallest_diff):
+            smallest_diff = diff
+            smallest_diff_index = index
+    return smallest_diff_index
