@@ -18,16 +18,17 @@ import gc
 _DATE_TIME_FORMAT = "%d_%m_%Y_%H_%M_%S"
 _DATETIME = date_and_time = datetime.now().strftime(_DATE_TIME_FORMAT)
 _CHORD_MULTIPLIER = 0.5
-_NOTE_CATS = 106
+_NOTE_CATS = 107
 _BATCH_SIZE = 32
-_EPOCHS = 80
-_SEQUENCE_LENGTH = 16
+_EPOCHS = 160
+_SEQUENCE_LENGTH = 16 #seq 50 @ 256 nodes # seq 16 @ 512 nodes
+_LSTM_NODE_COUNT = 512
 
 callbacks = [
-# This callback saves a SavedModel every 8750 batches (roughly equates to 20 epochs at 14k training data and batch size 32).
+# This callback saves a SavedModel every 8820 batches (roughly equates to 20 epochs at 14k training data and batch size 32).
 keras.callbacks.ModelCheckpoint(
     filepath= os.getcwd() + '/models/chkpts/ckpt-acc={accuracy:.2f}',
-    save_freq= 4375)
+    save_freq= 8820)
 ]
 ## Get notes and rests per instrument from score
 def notesAndRests(score):
@@ -66,9 +67,9 @@ def groupPitchesByOffset(tupleArray):
             # Add all of the pitches in the tuple with the same offset as tuple i to this offset's group of pitches
             if(len(tupleArray[i][0]) > 1  or type(tupleArray[i][0][0]) != type(note.Rest())):
                 pitches.extend(tupleArray[i][0])
-        dur = duration.Duration(quarterLength=4.0)
+        dur = 1.0
         if(i < arrayLen - 1):
-            dur.quarterLength = tupleArray[i + 1][1] - offset
+            dur = tupleArray[i + 1][1] - offset
         if(type(pitches[0]) == type(note.Rest()) and len(pitches) > 1):
             pitches.pop(0)
         pitchesAndDuration.append((pitches,dur))
@@ -80,6 +81,7 @@ def groupPitchesByOffset(tupleArray):
 def reconstructListOfNotesAndDurations(tuplesArray):
     ## [] can be replaced by stream.Stream to create a stream instead of a list
     s = []
+    durs = []
     for each in tuplesArray:
         pitches, d = each
         if(len(pitches) == 1 and type(pitches[0]) == type(note.Rest())):
@@ -90,23 +92,26 @@ def reconstructListOfNotesAndDurations(tuplesArray):
                 element = chord.Chord(pitchNames)
             else:
                 element = note.Note(pitchNames[0])
-        element.duration = d
+        durs.append(d)
         s.append(element)
-    return s
+    return (s, durs)
 
 ## Convert note-dur list to midi only multi label encoding
-def noteToMidiNumbers(nList):
-    # 88 to represent 88 midi encodings and 1 for rest
+def noteToMidiNumbers(nList, durList):
+    # 107 to represent 105 midi encodings, 1 for rest, 1 for duration in decimal
     data = np.zeros((len(nList), _NOTE_CATS))
+    max_dur = max(durList)
     for i in range(len(nList)):
         if(nList[i].isRest):
-            data[i,_NOTE_CATS - 1] = 1
+            data[i,_NOTE_CATS - 2] = 1
         else:
             pitches = nList[i].pitches
             for e in pitches:
                 data[i,e.midi] = 1
                 ## Comment the break IF YOU WANT TO ENCODE ALL NOTES IN A CHORD NOT JUST THE FIRST
                 # break
+        data[i, _NOTE_CATS - 1] = durList[i]/max_dur
+        print(data[i, _NOTE_CATS - 1])
     return data
 
 def getData(score):
@@ -114,8 +119,7 @@ def getData(score):
         intermediate = pitchesAndOffsetTuples(intermediate)
         intermediate = groupPitchesByOffset(intermediate) 
         intermediate = reconstructListOfNotesAndDurations(intermediate)
-        intermediate = noteToMidiNumbers(intermediate)
-        # print('''Number of notes: {0}'''.format(intermediate.shape[0]))
+        intermediate = noteToMidiNumbers(intermediate[0], intermediate[1])
         return intermediate
 
 ## Group Multi-Label Encodings into Sequences and Corresponding Labels
@@ -168,23 +172,23 @@ def cleanData(filepaths, sequenceLength):
     return getSeqsAndLabels(scores, sequenceLength)
 
 # TODO: Experiment with deleting and recreating model each epoch to prevent memory leaks
-# TODO: Reduce sequence length to 16/32
-# TODO: Increase number of nodes in LSTM: 256 -> 270 -> 300 
+# TODO: Factor in duration as a new feature
 ## Create and Train model without using generator to feed data.
 def create_and_train_model(Seqs, Labels, Use_Checkpoint = False):
     # Train Model
     model = None
     if(Use_Checkpoint):
-        model = restore_model()
+        model = restore_model_from_checkpoints()
     if(model == None):
+        print("Nodes: ",_LSTM_NODE_COUNT, "Sequence length: ", _SEQUENCE_LENGTH)
         model = Sequential()
         model.add(LSTM(
-            512,
+            _LSTM_NODE_COUNT,
             input_shape=(_SEQUENCE_LENGTH, _NOTE_CATS),
             return_sequences=True
         ))
-        model.add(LSTM(512, return_sequences=True))
-        model.add(LSTM(512))
+        model.add(LSTM(_LSTM_NODE_COUNT, return_sequences=True))
+        model.add(LSTM(_LSTM_NODE_COUNT))
         model.add(Dense(_NOTE_CATS, activation = 'sigmoid'))
         model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
 
@@ -233,7 +237,7 @@ def create_and_train_model_V2(paths, Use_Checkpoint = False):
     # Train 
     model = None
     if(Use_Checkpoint):
-        model = restore_model()
+        model = restore_model_from_checkpoints()
     if(model == None):
         model = Sequential()
         model.add(LSTM(
@@ -267,48 +271,8 @@ def create_and_train_model_V2(paths, Use_Checkpoint = False):
 
     return (JSON_filepath, HDF5_filepath)
 
-def predict_with_saved_weights(json_path, h5_path, seed_data, number_of_notes):
-    ## seed_data is a 2 dimensional input (sequence of one-hot-encoded notes)
-    # Load model
-    json_file = open(json_path, 'r')
-    model_json = json_file.read()
-    json_file.close()
-    model = model_from_json(model_json)
-
-    # Load weights into model
-    model.load_weights(h5_path)
-
-    # compile model
-    model.compile(loss='categorical_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
-
-    inp = seed_data.tolist()
-    predictions = []
-    i = 0
-    while(i < number_of_notes):
-        inpNP = np.asarray(inp)
-        pred = model.predict(np.reshape(inpNP, (1,inpNP.shape[0],inpNP.shape[1])))
-        ## Currently only chooses the maximum of the predicted array for storage
-        inp.append(pred[0])
-        draw = np.random.choice(np.arange(0,inpNP.shape[1]),p=pred[0], replace = True)
-        predictions.append(draw)
-        inp = inp[1:len(inp)]
-        i += 1        
-    return predictions
-
-def predict_with_saved_weights_V2(json_path, h5_path, seed_data, number_of_notes):
-    ## seed_data is a 2 dimensional input (sequence of one-hot-encoded notes)
-    # Load model
-    json_file = open(json_path, 'r')
-    model_json = json_file.read()
-    json_file.close()
-    model = model_from_json(model_json)
-
-    # Load weights into model
-    model.load_weights(h5_path)
-
-    # compile model
-    model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
-
+def predict_with_saved_weights_checkpoint(seed_data, number_of_notes):
+    model = restore_model_from_checkpoints()
     inp = seed_data.tolist()
     predictions = []
     i = 0
@@ -317,7 +281,8 @@ def predict_with_saved_weights_V2(json_path, h5_path, seed_data, number_of_notes
         pred = model.predict(np.reshape(inpNP, (1,inpNP.shape[0],inpNP.shape[1])))
         # Currently only chooses the maximum of the predicted array for storage
         inp.append(pred[0])
-        prediction = pred[0]
+        prediction = pred[0][0:_NOTE_CATS - 1]
+        duration_prediction = pred[0][_NOTE_CATS - 1]
 
         draw = np.where(prediction == np.amax(prediction))[0][0]
         draw_prob = prediction[draw]
@@ -328,37 +293,54 @@ def predict_with_saved_weights_V2(json_path, h5_path, seed_data, number_of_notes
         chord_notes = np.where(prediction > _CHORD_MULTIPLIER*draw_prob)[0]
         draw = np.append(chord_notes, draw)
 
-        predictions.append(draw)
+        predictions.append((draw, duration_prediction))
         inp = inp[1:len(inp)]
         i += 1        
     return predictions
 
-def create_MIDI_file(predicted_notes):
-    s = stream.Stream()
-    for m in predicted_notes:
-        if(m == _NOTE_CATS - 1):
-            n = note.Rest()
-        else:
-            p = pitch.Pitch(m)
-            n = note.Note()
-            n.pitch = p
-        n.duration = duration.Duration(quarterLength = 1)
-        s.append(n)
-    # speed up piece by factor of 2
-    stream_to_write = s.augmentOrDiminish(0.50)
-    # write to midi file
-    MIDI_filepath = os.getcwd() + '''/output/music_gen_output_{0}.mid'''.format(_DATETIME)
-    stream_to_write.write('midi', fp= MIDI_filepath)
+def predict_with_saved_weights_json(json_path, h5_path, seed_data, number_of_notes):
+    ## seed_data is a 2 dimensional input (sequence of one-hot-encoded notes)
+    # Load model
+    model = restore_model_from_json(json_path, h5_path)
+
+    inp = seed_data.tolist()
+    predictions = []
+    i = 0
+    while(i < number_of_notes):
+        inpNP = np.asarray(inp)
+        pred = model.predict(np.reshape(inpNP, (1,inpNP.shape[0],inpNP.shape[1])))
+        # Currently only chooses the maximum of the predicted array for storage
+        inp.append(pred[0])
+        prediction = pred[0][0:_NOTE_CATS - 1]
+        duration_prediction = pred[0][_NOTE_CATS - 1]
+
+        draw = np.where(prediction == np.amax(prediction))[0][0]
+        draw_prob = prediction[draw]
+
+        args_to_remove = [draw, draw - 1, draw + 1]
+        prediction = np.delete(prediction, args_to_remove)
+
+        chord_notes = np.where(prediction > _CHORD_MULTIPLIER*draw_prob)[0]
+        draw = np.append(chord_notes, draw)
+
+        predictions.append((draw, duration_prediction))
+        inp = inp[1:len(inp)]
+        i += 1        
+    return predictions
 
 def create_MIDI_file_multilabel(predicted_notes):
     s = stream.Stream()
-    for m in predicted_notes:
+
+    for m,dur in predicted_notes:
         arr = m[np.where(m != _NOTE_CATS - 1)]
         if(arr.size == 0):
-            s.append(note.Rest())
+            note_to_add = note.Rest()
+            note_to_add.duration = duration.Duration(quarterLength = dur)
+            s.append()
             continue
         if(arr.size == 1):
             n = note.Note()
+            n.duration = duration.Duration(quarterLength = dur)
             n.pitch = pitch.Pitch(arr[0])
             s.append(n)
             continue
@@ -366,6 +348,7 @@ def create_MIDI_file_multilabel(predicted_notes):
             midis = arr.tolist()
             pitches = list(map(lambda x: pitch.Pitch(x), midis))
             c = chord.Chord(pitches)
+            c.duration = duration.Duration(quarterLength = dur)
             s.append(c)
         else:
             print("something went wrong m: {0} arr: {1}".format(m, arr))
@@ -377,7 +360,7 @@ def create_MIDI_file_multilabel(predicted_notes):
 
 
 ## MEMORY OPTIMIZATIONS
-def restore_model():
+def restore_model_from_checkpoints():
     # Either restore the latest model, or create a fresh one
     # if there is no checkpoint available.
     chkpt_dir = os.getcwd() + '/models/chkpts/'
@@ -388,3 +371,16 @@ def restore_model():
         print('Restoring from', latest_checkpoint)
         return keras.models.load_model(latest_checkpoint)
     return "no model found in checkpoints"
+
+def restore_model_from_json(json_path, h5_path):
+    json_file = open(json_path, 'r')
+    model_json = json_file.read()
+    json_file.close()
+    model = model_from_json(model_json)
+
+    # Load weights into model
+    model.load_weights(h5_path)
+
+    # compile model
+    model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
+    return model
