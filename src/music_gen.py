@@ -396,4 +396,4 @@ def find_smoothed_duration(dur):
         if(diff < smallest_diff):
             smallest_diff = diff
             smallest_diff_index = index
-    return smallest_diff_index
+    return opt_array[smallest_diff_index]
