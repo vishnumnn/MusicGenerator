@@ -19,14 +19,11 @@ _DATE_TIME_FORMAT = "%d_%m_%Y_%H_%M_%S"
 _DATETIME = date_and_time = datetime.now().strftime(_DATE_TIME_FORMAT)
 _CHORD_MULTIPLIER = 0.5
 _NOTE_CATS = 107
-_BATCH_SIZE = 32
+#_BATCH_SIZE = 32
+_BASIC_DIVIDE = 1/48
 _EPOCHS = 160
 _SEQUENCE_LENGTH = 16 #seq 50 @ 256 nodes # seq 16 @ 512 nodes
 _LSTM_NODE_COUNT = 512
-
-## NOTE VALUE CONSTANTS
-opt_array = [0.015625, 0.027777,0.03125, 0.041666,0.055555, 0.0625, 0.083333, 0.11111, 0.166666, 0.125, 0.25, 0.375, 0.5,0.75]
-
 
 callbacks = [
 # This callback saves a SavedModel every 8820 batches (roughly equates to 20 epochs at 14k training data and batch size 32).
