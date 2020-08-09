@@ -18,18 +18,19 @@ import gc
 _DATE_TIME_FORMAT = "%d_%m_%Y_%H_%M_%S"
 _DATETIME = date_and_time = datetime.now().strftime(_DATE_TIME_FORMAT)
 _CHORD_MULTIPLIER = 0.5
-_NOTE_CATS = 107
-#_BATCH_SIZE = 32
-_BASIC_DIVIDE = 1/48
+_NOTE_CATS = 106
+_BATCH_SIZE = 32
+_NUM_SUBDIVISIONS = 48
 _EPOCHS = 160
-_SEQUENCE_LENGTH = 16 #seq 50 @ 256 nodes # seq 16 @ 512 nodes
+_SEQUENCE_LENGTH = 8 #number of quarter notes in a sequence. 12 tics per quarter note in 4/4
 _LSTM_NODE_COUNT = 512
+_TICS_PER_MEASURE = 48
 
 callbacks = [
-# This callback saves a SavedModel every 8820 batches (roughly equates to 20 epochs at 14k training data and batch size 32).
+# This callback saves a SavedModel every x batches
 keras.callbacks.ModelCheckpoint(
     filepath= os.getcwd() + '/models/chkpts/ckpt-acc={accuracy:.2f}',
-    save_freq= 8820)
+    save_freq= 10000)
 ]
 ## Get notes and rests per instrument from score
 def notesAndRests(score):
@@ -122,8 +123,68 @@ def getData(score):
         intermediate = noteToMidiNumbers(intermediate[0], intermediate[1])
         return intermediate
 
-## Group Multi-Label Encodings into Sequences and Corresponding Labels
 
+def el_end(el):
+    return el.offset + el.duration.quarterLength
+
+def encode_element_array(elem_ar):
+    encoded_ar = np.zeros((_NOTE_CATS,))
+    for e in elem_ar:
+        if(e.isRest):
+            encoded_ar[_NOTE_CATS - 1] = 1
+        else:        
+            pitches = e.pitches
+            for p in pitches:
+                encoded_ar[p.midi] = 1
+    return encoded_ar
+        
+def encode_all_elements(elems):
+    window_start = elems[0].offset
+    window_end = elems[0].offset
+    
+    elems_idx = 0
+    encoded_data_idx = 0
+    
+    note_store = [elems[0]]
+    shortest_note_in_store = elems[0]
+    final_elem = elems[len(elems) - 1]
+    encoded_data = np.ndarray((int(round(el_end(final_elem) * _TICS_PER_MEASURE)), _NOTE_CATS))
+    
+    def process_window(y):
+        nonlocal encoded_data_idx
+        clean = encode_element_array(note_store)
+        span = int(round((window_end - window_start)* _TICS_PER_MEASURE))
+        for i in range(span):
+            encoded_data[encoded_data_idx + i] = clean
+        encoded_data_idx += span 
+        
+    print(el_end(final_elem))
+    while(window_start < el_end(final_elem)):
+        shortest_note_end = el_end(shortest_note_in_store)
+        if(elems_idx + 1 < len(elems)):
+            next_elem = elems[elems_idx + 1]
+            if(next_elem.duration.quarterLength == 0.0):
+                elems_idx += 1
+                continue
+            if(next_elem.offset < shortest_note_end):
+                if(next_elem.offset > shortest_note_in_store.offset):
+                    window_end = next_elem.offset
+                    process_window()
+                    window_start = window_end
+                note_store.append(next_elem)
+                shortest_note_in_store = min(note_store, key = lambda x: el_end(x))
+                elems_idx += 1
+                continue
+        window_end = shortest_note_end
+        process_window()
+        note_store = [note for note in note_store if el_end(note) > window_end]
+        if(not note_store):
+            note_store.append(next_elem)
+        window_start = window_end
+        shortest_note_in_store = min(note_store, key = lambda x: el_end(x))
+    return encoded_data
+
+## Group Multi-Label Encodings into Sequences and Corresponding Labels
 ## Consider altering function so that sequences can be found at halfway points between labels recursively up to a 
 ## certain depth. E.g. Sequences at every 0th offset, Seqlen/2 offset, SeqLen/4 offset, and so on. 
 def getSeqsAndLabelsForSingleScore(data, SeqLen):
@@ -281,8 +342,7 @@ def predict_with_saved_weights_checkpoint(seed_data, number_of_notes):
         pred = model.predict(np.reshape(inpNP, (1,inpNP.shape[0],inpNP.shape[1])))
         # Currently only chooses the maximum of the predicted array for storage
         inp.append(pred[0])
-        prediction = pred[0][0:_NOTE_CATS - 1]
-        duration_prediction = pred[0][_NOTE_CATS - 1]
+        prediction = pred[0]
 
         draw = np.where(prediction == np.amax(prediction))[0][0]
         draw_prob = prediction[draw]
@@ -310,8 +370,7 @@ def predict_with_saved_weights_json(json_path, h5_path, seed_data, number_of_not
         pred = model.predict(np.reshape(inpNP, (1,inpNP.shape[0],inpNP.shape[1])))
         # Currently only chooses the maximum of the predicted array for storage
         inp.append(pred[0])
-        prediction = pred[0][0:_NOTE_CATS - 1]
-        duration_prediction = pred[0][_NOTE_CATS - 1]
+        prediction = pred[0]
 
         draw = np.where(prediction == np.amax(prediction))[0][0]
         draw_prob = prediction[draw]
@@ -332,15 +391,12 @@ def create_MIDI_file_multilabel(predicted_notes, tempo_scale):
 
     for m,dur in predicted_notes:
         arr = m[np.where(m != _NOTE_CATS - 1)]
-        smoothed_duration = find_smoothed_duration(dur)
         if(arr.size == 0):
             note_to_add = note.Rest()
-            note_to_add.duration = duration.Duration(quarterLength = smoothed_duration)
             s.append()
             continue
         if(arr.size == 1):
             n = note.Note()
-            n.duration = duration.Duration(quarterLength = smoothed_duration)
             n.pitch = pitch.Pitch(arr[0])
             s.append(n)
             continue
@@ -348,7 +404,6 @@ def create_MIDI_file_multilabel(predicted_notes, tempo_scale):
             midis = arr.tolist()
             pitches = list(map(lambda x: pitch.Pitch(x), midis))
             c = chord.Chord(pitches)
-            c.duration = duration.Duration(quarterLength = smoothed_duration)
             s.append(c)
         else:
             print("something went wrong m: {0} arr: {1}".format(m, arr))
