@@ -197,33 +197,38 @@ def getSeqsAndLabelsPermutations(data, SeqLen):
     return (SeqSet, SeqLabels)
 
 ## Outputs a ndarray of (Num Sequences, Sequence Length, Num features) schema
-def getSeqsAndLabels(scores, SeqLen):
-    SeqSet, SeqLabels = getSeqsAndLabelsPermutations(getData(scores.pop(0)), SeqLen)
-    for each in scores:
-        D, L = getSeqsAndLabelsPermutations(getData(each), SeqLen)
+def getSeqsAndLabels(sequences_labels_tuples, SeqLen):
+    SeqSet, SeqLabels = sequences_labels_tuples[0]
+    for i in range(1, len(sequences_labels_tuples)):
+        D, L = sequences_labels_tuples[i]
         SeqSet = np.concatenate((SeqSet, D))
         SeqLabels = np.concatenate((SeqLabels, L))
     return (SeqSet, SeqLabels)
 
-def clean_notewise_data(filepaths, sequenceLength):
+def clean_notewise_data(filepaths, sequence_length):
     # Load Files and Extract streams
     scores = list(map(lambda x: converter.parse(os.getcwd() + '''/music/''' + x).parts.stream(), filepaths))
-    return getSeqsAndLabels(scores, sequenceLength)
+    encoded_data = list(map(getData, scores))
+    sequenced_data = list(map(lambda x: getSeqsAndLabelsPermutations(x, sequence_length), encoded_data))
+    del scores
+    del encoded_data
+    del sequenced_data
+    gc.collect()
+    SeqSet, SeqLabels = getSeqsAndLabels(sequenced_data, sequence_length)
+    return (SeqSet, SeqLabels)
 
 def clean_ticwise_data(filepaths, sequence_length):
     # Load Files and Extract streams
     scores = list(map(lambda x: converter.parse(os.getcwd() + '''/music/''' + x).parts.stream(), filepaths))
     notes_for_scores = list(map(notesAndRests, scores))
-    np_array_list = list(map(encode_all_elements, notes_for_scores))
-    SeqSet, SeqLabels = getSeqsAndLabelsPermutations(np_array_list[0], sequence_length)
-    for i in range(1, len(np_array_list)):
-        D, L = getSeqsAndLabelsPermutations(np_array_list[i], sequence_length)
-        SeqSet = np.concatenate((SeqSet, D))
-        SeqLabels = np.concatenate((SeqLabels, L))
-    del np_array_list
-    del notes_for_scores
+    encoded_data = list(map(encode_all_elements, notes_for_scores))
+    sequenced_data = list(map(lambda x: getSeqsAndLabelsPermutations(x, sequence_length), encoded_data))    
     del scores
+    del notes_for_scores
+    del encoded_data
+    del sequenced_data
     gc.collect()
+    SeqSet, SeqLabels = getSeqsAndLabels(sequenced_data, sequence_length)
     return (SeqSet, SeqLabels)
 
 # TODO: Experiment with deleting and recreating model each epoch to prevent memory leaks
