@@ -17,12 +17,12 @@ import gc
 ## PARAMETER CONSTANTS
 _DATE_TIME_FORMAT = "%d_%m_%Y_%H_%M_%S"
 _DATETIME = date_and_time = datetime.now().strftime(_DATE_TIME_FORMAT)
-_CHORD_MULTIPLIER = 0.5
+_CHORD_MULTIPLIER = 0.75
 _NOTE_CATS = 106
 _BATCH_SIZE = 32
 _EPOCHS = 160
 _LSTM_NODE_COUNT = 512
-_TICS_PER_MEASURE = 48
+_TICS_PER_MEASURE = 24
 _SEQUENCE_LENGTH = _TICS_PER_MEASURE*2 #number of quarter notes in a sequence. 12 tics per quarter note in 4/4
 
 callbacks = [
@@ -149,7 +149,7 @@ def encode_all_elements(elems):
     final_elem = elems[len(elems) - 1]
     encoded_data = np.ndarray((int(round(el_end(final_elem) * _TICS_PER_MEASURE)), _NOTE_CATS))
     
-    def process_window(y):
+    def process_window():
         nonlocal encoded_data_idx
         clean = encode_element_array(note_store)
         span = int(round((window_end - window_start)* _TICS_PER_MEASURE))
@@ -223,12 +223,12 @@ def clean_ticwise_data(filepaths, sequence_length):
     notes_for_scores = list(map(notesAndRests, scores))
     encoded_data = list(map(encode_all_elements, notes_for_scores))
     sequenced_data = list(map(lambda x: getSeqsAndLabelsPermutations(x, sequence_length), encoded_data))    
-    del scores
+    SeqSet, SeqLabels = getSeqsAndLabels(sequenced_data, sequence_length)
+    del scores # Should get garbage collected automatically, but just in case
     del notes_for_scores
     del encoded_data
     del sequenced_data
     gc.collect()
-    SeqSet, SeqLabels = getSeqsAndLabels(sequenced_data, sequence_length)
     return (SeqSet, SeqLabels)
 
 # TODO: Experiment with deleting and recreating model each epoch to prevent memory leaks
@@ -343,18 +343,22 @@ def predict_with_saved_weights_checkpoint(seed_data, number_of_notes):
         inp.append(pred[0])
         prediction = pred[0]
 
-        draw = np.where(prediction == np.amax(prediction))[0][0]
+        index_np = np.arange(len(prediction))
+
+        draw = index_np[np.where(prediction == np.amax(prediction))[0][0]]
         draw_prob = prediction[draw]
-
-        args_to_remove = [draw, draw - 1, draw + 1]
+        args_to_remove = [draw, draw - 1]
+        if(draw < len(prediction) - 1):
+            args_to_remove.append(draw + 1)
+            
         prediction = np.delete(prediction, args_to_remove)
-
-        chord_notes = np.where(prediction > _CHORD_MULTIPLIER*draw_prob)[0]
+        index_np = np.delete(index_np, args_to_remove)
+        chord_notes = index_np[np.where(prediction > _CHORD_MULTIPLIER*draw_prob)[0]]
         draw = np.append(chord_notes, draw)
 
-        predictions.append((draw, duration_prediction))
+        predictions.append(draw)
         inp = inp[1:len(inp)]
-        i += 1        
+        i += 1             
     return predictions
 
 def predict_with_saved_weights_json(json_path, h5_path, seed_data, number_of_notes):
@@ -371,16 +375,20 @@ def predict_with_saved_weights_json(json_path, h5_path, seed_data, number_of_not
         inp.append(pred[0])
         prediction = pred[0]
 
-        draw = np.where(prediction == np.amax(prediction))[0][0]
+        index_np = np.arange(len(prediction))
+
+        draw = index_np[np.where(prediction == np.amax(prediction))[0][0]]
         draw_prob = prediction[draw]
+        args_to_remove = [draw, draw - 1]
+        if(draw < len(prediction) - 1):
+            args_to_remove.append(draw + 1)
 
-        args_to_remove = [draw, draw - 1, draw + 1]
         prediction = np.delete(prediction, args_to_remove)
-
-        chord_notes = np.where(prediction > _CHORD_MULTIPLIER*draw_prob)[0]
+        index_np = np.delete(index_np, args_to_remove)
+        chord_notes = index_np[np.where(prediction > _CHORD_MULTIPLIER*draw_prob)[0]]
         draw = np.append(chord_notes, draw)
 
-        predictions.append((draw, duration_prediction))
+        predictions.append(draw)
         inp = inp[1:len(inp)]
         i += 1        
     return predictions
@@ -388,11 +396,11 @@ def predict_with_saved_weights_json(json_path, h5_path, seed_data, number_of_not
 def create_MIDI_file_multilabel(predicted_notes, tempo_scale):
     s = stream.Stream()
 
-    for m,dur in predicted_notes:
+    for m in predicted_notes:
         arr = m[np.where(m != _NOTE_CATS - 1)]
         if(arr.size == 0):
             note_to_add = note.Rest()
-            s.append()
+            s.append(note_to_add)
             continue
         if(arr.size == 1):
             n = note.Note()
@@ -401,6 +409,7 @@ def create_MIDI_file_multilabel(predicted_notes, tempo_scale):
             continue
         if(arr.size > 1):
             midis = arr.tolist()
+            midis = [midi for midi in midis if midi != 106]
             pitches = list(map(lambda x: pitch.Pitch(x), midis))
             c = chord.Chord(pitches)
             s.append(c)
@@ -412,7 +421,27 @@ def create_MIDI_file_multilabel(predicted_notes, tempo_scale):
     MIDI_filepath = os.getcwd() + '''/output/music_gen_output_{0}.mid'''.format(_DATETIME)
     stream_to_write.write('midi', fp= MIDI_filepath)
 
-
+    def create_MIDI_file_ticwise(predicted_notes, tempo_scale):
+        s = stream.Stream()
+        basic_step = 1/_TICS_PER_MEASURE
+        for midi in range(_NOTE_CATS):
+            curr_note = note.Note()
+            curr_note.pitch = pitch.Pitch(midi)
+            note_found = False
+            while(pred_idx < len(predicted_notes)):
+                if midi in predicted_notes[pred_idx]:
+                    note_found = True
+                    successive_count = 1
+                    curr_note.offset = basic_step*pred_idx
+                    while(pred_idx < len(predicted_notes) and midi in predicted_notes[pred_idx]):
+                        successive_count += 1
+                        pred_idx += 1
+                    curr_note.duration = basic_step*successive_count
+                else:
+                    pred_idx += 1
+            if(note_found):
+                s.append(curr_note)
+        return s
 ## MEMORY OPTIMIZATIONS
 def restore_model_from_checkpoints():
     # Either restore the latest model, or create a fresh one
