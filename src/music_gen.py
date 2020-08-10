@@ -20,11 +20,10 @@ _DATETIME = date_and_time = datetime.now().strftime(_DATE_TIME_FORMAT)
 _CHORD_MULTIPLIER = 0.5
 _NOTE_CATS = 106
 _BATCH_SIZE = 32
-_NUM_SUBDIVISIONS = 48
 _EPOCHS = 160
-_SEQUENCE_LENGTH = 8 #number of quarter notes in a sequence. 12 tics per quarter note in 4/4
 _LSTM_NODE_COUNT = 512
 _TICS_PER_MEASURE = 48
+_SEQUENCE_LENGTH = _TICS_PER_MEASURE*2 #number of quarter notes in a sequence. 12 tics per quarter note in 4/4
 
 callbacks = [
 # This callback saves a SavedModel every x batches
@@ -184,27 +183,6 @@ def encode_all_elements(elems):
         shortest_note_in_store = min(note_store, key = lambda x: el_end(x))
     return encoded_data
 
-## Group Multi-Label Encodings into Sequences and Corresponding Labels
-## Consider altering function so that sequences can be found at halfway points between labels recursively up to a 
-## certain depth. E.g. Sequences at every 0th offset, Seqlen/2 offset, SeqLen/4 offset, and so on. 
-def getSeqsAndLabelsForSingleScore(data, SeqLen):
-    ## data is a 2d numpy array, SeqLen is an integer
-    numSeqs = math.floor(data.shape[0]/(SeqLen + 1))
-    ## Numpy array of Seqs
-    bridgeAddition = math.floor(numSeqs - math.floor(SeqLen/2) / SeqLen)
-    SeqSet = np.zeros((numSeqs + bridgeAddition, SeqLen, data.shape[1]))
-    ## Numpy array of Labels
-    SeqLabels = np.zeros((numSeqs + bridgeAddition, data.shape[1]))
-    for i in range(numSeqs - 1):
-        SeqSet[i] = data[i*SeqLen : (i+1)*SeqLen]
-        SeqLabels[i] = data[(i+1)*SeqLen]
-    offset = math.floor(SeqLen/2)
-    for i in range(numSeqs, numSeqs + bridgeAddition - 1):
-        multiple = i - numSeqs
-        SeqSet[i] = data[offset + multiple*SeqLen : offset + (multiple + 1)*SeqLen]
-        SeqLabels[i] = data[offset + (multiple + 1)*SeqLen]
-    return (SeqSet, SeqLabels)
-
 ## Every increasing permutation instead of every half sequence len
 def getSeqsAndLabelsPermutations(data, SeqLen):
     ## data is a 2d numpy array, SeqLen is an integer
@@ -227,10 +205,26 @@ def getSeqsAndLabels(scores, SeqLen):
         SeqLabels = np.concatenate((SeqLabels, L))
     return (SeqSet, SeqLabels)
 
-def cleanData(filepaths, sequenceLength):
+def clean_notewise_data(filepaths, sequenceLength):
     # Load Files and Extract streams
     scores = list(map(lambda x: converter.parse(os.getcwd() + '''/music/''' + x).parts.stream(), filepaths))
     return getSeqsAndLabels(scores, sequenceLength)
+
+def clean_ticwise_data(filepaths, sequence_length):
+    # Load Files and Extract streams
+    scores = list(map(lambda x: converter.parse(os.getcwd() + '''/music/''' + x).parts.stream(), filepaths))
+    notes_for_scores = list(map(notesAndRests, scores))
+    np_array_list = list(map(encode_all_elements, notes_for_scores))
+    SeqSet, SeqLabels = getSeqsAndLabelsPermutations(np_array_list[0], sequence_length)
+    for i in range(1, len(np_array_list)):
+        D, L = getSeqsAndLabelsPermutations(np_array_list[i], sequence_length)
+        SeqSet = np.concatenate((SeqSet, D))
+        SeqLabels = np.concatenate((SeqLabels, L))
+    del np_array_list
+    del notes_for_scores
+    del scores
+    gc.collect()
+    return (SeqSet, SeqLabels)
 
 # TODO: Experiment with deleting and recreating model each epoch to prevent memory leaks
 # TODO: Factor in duration as a new feature

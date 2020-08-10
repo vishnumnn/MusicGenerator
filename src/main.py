@@ -15,7 +15,7 @@ PATHS_3 = ['Paganini_Caprice_No_5_in_A_minor.mxl']
 ###
 
 # Clean data
-Seqs, Labels = music_gen.cleanData(PATHS_3, 16)
+Seqs, Labels = music_gen.clean_notewise_data(PATHS_3, 16)
 print('''Overall shape of sequences data {0}'''.format(Seqs.shape))
 
 # # Split training and test data
