@@ -412,27 +412,33 @@ def create_MIDI_file_multilabel(predicted_notes, tempo_scale):
     MIDI_filepath = os.getcwd() + '''/output/music_gen_output_{0}.mid'''.format(_DATETIME)
     stream_to_write.write('midi', fp= MIDI_filepath)
 
-    def create_MIDI_file_ticwise(predicted_notes, tempo_scale):
-        s = stream.Stream()
-        basic_step = 1/_TICS_PER_MEASURE
-        for midi in range(_NOTE_CATS):
-            curr_note = note.Note()
-            curr_note.pitch = pitch.Pitch(midi)
-            note_found = False
-            while(pred_idx < len(predicted_notes)):
-                if midi in predicted_notes[pred_idx]:
-                    note_found = True
-                    successive_count = 1
-                    curr_note.offset = basic_step*pred_idx
-                    while(pred_idx < len(predicted_notes) and midi in predicted_notes[pred_idx]):
-                        successive_count += 1
-                        pred_idx += 1
-                    curr_note.duration = basic_step*successive_count
-                else:
+def create_MIDI_file_ticwise(predicted_notes, tempo_scale):
+    s = stream.Stream()
+    basic_step = 1/_TICS_PER_MEASURE
+    for midi in range(_NOTE_CATS):
+        pred_idx = 0
+        curr_note = note.Note()
+        curr_note.pitch = pitch.Pitch(midi)
+        note_found = False
+        while(pred_idx < len(predicted_notes)):
+            if midi in predicted_notes[pred_idx]:
+                note_found = True
+                successive_count = 1
+                curr_note.offset = basic_step*pred_idx
+                while(pred_idx < len(predicted_notes) and midi in predicted_notes[pred_idx]):
+                    successive_count += 1
                     pred_idx += 1
-            if(note_found):
-                s.append(curr_note)
-        return s
+                curr_note.duration = basic_step*successive_count
+            else:
+                pred_idx += 1
+        if(note_found):
+            s.append(curr_note)
+    stream_to_write = s.augmentOrDiminish(tempo_scale)
+    # write to midi file
+    MIDI_filepath = os.getcwd() + '''/output/music_gen_output_{0}.mid'''.format(_DATETIME)
+    stream_to_write.write('midi', fp= MIDI_filepath)
+    return s
+    
 ## MEMORY OPTIMIZATIONS
 def restore_model_from_checkpoints():
     # Either restore the latest model, or create a fresh one
