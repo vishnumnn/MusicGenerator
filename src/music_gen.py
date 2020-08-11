@@ -17,19 +17,19 @@ import gc
 ## PARAMETER CONSTANTS
 _DATE_TIME_FORMAT = "%d_%m_%Y_%H_%M_%S"
 _DATETIME = date_and_time = datetime.now().strftime(_DATE_TIME_FORMAT)
-_CHORD_MULTIPLIER = 0.5
-_NOTE_CATS = 107
-#_BATCH_SIZE = 32
-_BASIC_DIVIDE = 1/48
+_CHORD_MULTIPLIER = 0.75
+_NOTE_CATS = 106
+_BATCH_SIZE = 32
 _EPOCHS = 160
-_SEQUENCE_LENGTH = 16 #seq 50 @ 256 nodes # seq 16 @ 512 nodes
 _LSTM_NODE_COUNT = 512
+_TICS_PER_MEASURE = 24
+_SEQUENCE_LENGTH = 32#_TICS_PER_MEASURE*2 #number of quarter notes in a sequence. 12 tics per quarter note in 4/4
 
 callbacks = [
-# This callback saves a SavedModel every 8820 batches (roughly equates to 20 epochs at 14k training data and batch size 32).
+# This callback saves a SavedModel every x batches
 keras.callbacks.ModelCheckpoint(
     filepath= os.getcwd() + '/models/chkpts/ckpt-acc={accuracy:.2f}',
-    save_freq= 8820)
+    save_freq= 10000)
 ]
 ## Get notes and rests per instrument from score
 def notesAndRests(score):
@@ -104,7 +104,7 @@ def noteToMidiNumbers(nList, durList):
     max_dur = max(durList)
     for i in range(len(nList)):
         if(nList[i].isRest):
-            data[i,_NOTE_CATS - 2] = 1
+            data[i,_NOTE_CATS - 1] = 1
         else:
             pitches = nList[i].pitches
             for e in pitches:
@@ -122,27 +122,66 @@ def getData(score):
         intermediate = noteToMidiNumbers(intermediate[0], intermediate[1])
         return intermediate
 
-## Group Multi-Label Encodings into Sequences and Corresponding Labels
 
-## Consider altering function so that sequences can be found at halfway points between labels recursively up to a 
-## certain depth. E.g. Sequences at every 0th offset, Seqlen/2 offset, SeqLen/4 offset, and so on. 
-def getSeqsAndLabelsForSingleScore(data, SeqLen):
-    ## data is a 2d numpy array, SeqLen is an integer
-    numSeqs = math.floor(data.shape[0]/(SeqLen + 1))
-    ## Numpy array of Seqs
-    bridgeAddition = math.floor(numSeqs - math.floor(SeqLen/2) / SeqLen)
-    SeqSet = np.zeros((numSeqs + bridgeAddition, SeqLen, data.shape[1]))
-    ## Numpy array of Labels
-    SeqLabels = np.zeros((numSeqs + bridgeAddition, data.shape[1]))
-    for i in range(numSeqs - 1):
-        SeqSet[i] = data[i*SeqLen : (i+1)*SeqLen]
-        SeqLabels[i] = data[(i+1)*SeqLen]
-    offset = math.floor(SeqLen/2)
-    for i in range(numSeqs, numSeqs + bridgeAddition - 1):
-        multiple = i - numSeqs
-        SeqSet[i] = data[offset + multiple*SeqLen : offset + (multiple + 1)*SeqLen]
-        SeqLabels[i] = data[offset + (multiple + 1)*SeqLen]
-    return (SeqSet, SeqLabels)
+def el_end(el):
+    return el.offset + el.duration.quarterLength
+
+def encode_element_array(elem_ar):
+    encoded_ar = np.zeros((_NOTE_CATS,))
+    for e in elem_ar:
+        if(e.isRest):
+            encoded_ar[_NOTE_CATS - 1] = 1
+        else:        
+            pitches = e.pitches
+            for p in pitches:
+                encoded_ar[p.midi] = 1
+    return encoded_ar
+        
+def encode_all_elements(elems):
+    window_start = elems[0].offset
+    window_end = elems[0].offset
+    
+    elems_idx = 0
+    encoded_data_idx = 0
+    
+    note_store = [elems[0]]
+    shortest_note_in_store = elems[0]
+    final_elem = elems[len(elems) - 1]
+    encoded_data = np.ndarray((int(round(el_end(final_elem) * _TICS_PER_MEASURE)), _NOTE_CATS))
+    
+    def process_window():
+        nonlocal encoded_data_idx
+        clean = encode_element_array(note_store)
+        span = int(round((window_end - window_start)* _TICS_PER_MEASURE))
+        for i in range(span):
+            encoded_data[encoded_data_idx + i] = clean
+        encoded_data_idx += span 
+        
+    print(el_end(final_elem))
+    while(window_start < el_end(final_elem)):
+        shortest_note_end = el_end(shortest_note_in_store)
+        if(elems_idx + 1 < len(elems)):
+            next_elem = elems[elems_idx + 1]
+            if(next_elem.duration.quarterLength == 0.0):
+                elems_idx += 1
+                continue
+            if(next_elem.offset < shortest_note_end):
+                if(next_elem.offset > shortest_note_in_store.offset):
+                    window_end = next_elem.offset
+                    process_window()
+                    window_start = window_end
+                note_store.append(next_elem)
+                shortest_note_in_store = min(note_store, key = lambda x: el_end(x))
+                elems_idx += 1
+                continue
+        window_end = shortest_note_end
+        process_window()
+        note_store = [note for note in note_store if el_end(note) > window_end]
+        if(not note_store):
+            note_store.append(next_elem)
+        window_start = window_end
+        shortest_note_in_store = min(note_store, key = lambda x: el_end(x))
+    return encoded_data
 
 ## Every increasing permutation instead of every half sequence len
 def getSeqsAndLabelsPermutations(data, SeqLen):
@@ -158,18 +197,30 @@ def getSeqsAndLabelsPermutations(data, SeqLen):
     return (SeqSet, SeqLabels)
 
 ## Outputs a ndarray of (Num Sequences, Sequence Length, Num features) schema
-def getSeqsAndLabels(scores, SeqLen):
-    SeqSet, SeqLabels = getSeqsAndLabelsPermutations(getData(scores.pop(0)), SeqLen)
-    for each in scores:
-        D, L = getSeqsAndLabelsPermutations(getData(each), SeqLen)
+def getSeqsAndLabels(sequences_labels_tuples, SeqLen):
+    SeqSet, SeqLabels = sequences_labels_tuples[0]
+    for i in range(1, len(sequences_labels_tuples)):
+        D, L = sequences_labels_tuples[i]
         SeqSet = np.concatenate((SeqSet, D))
         SeqLabels = np.concatenate((SeqLabels, L))
     return (SeqSet, SeqLabels)
 
-def cleanData(filepaths, sequenceLength):
+def clean_notewise_data(filepaths, sequence_length):
     # Load Files and Extract streams
     scores = list(map(lambda x: converter.parse(os.getcwd() + '''/music/''' + x).parts.stream(), filepaths))
-    return getSeqsAndLabels(scores, sequenceLength)
+    encoded_data = list(map(getData, scores))
+    sequenced_data = list(map(lambda x: getSeqsAndLabelsPermutations(x, sequence_length), encoded_data))
+    SeqSet, SeqLabels = getSeqsAndLabels(sequenced_data, sequence_length)
+    return (SeqSet, SeqLabels)
+
+def clean_ticwise_data(filepaths, sequence_length):
+    # Load Files and Extract streams
+    scores = list(map(lambda x: converter.parse(os.getcwd() + '''/music/''' + x).parts.stream(), filepaths))
+    notes_for_scores = list(map(notesAndRests, scores))
+    encoded_data = list(map(encode_all_elements, notes_for_scores))
+    sequenced_data = list(map(lambda x: getSeqsAndLabelsPermutations(x, sequence_length), encoded_data))    
+    SeqSet, SeqLabels = getSeqsAndLabels(sequenced_data, sequence_length)
+    return (SeqSet, SeqLabels)
 
 # TODO: Experiment with deleting and recreating model each epoch to prevent memory leaks
 # TODO: Factor in duration as a new feature
@@ -281,21 +332,24 @@ def predict_with_saved_weights_checkpoint(seed_data, number_of_notes):
         pred = model.predict(np.reshape(inpNP, (1,inpNP.shape[0],inpNP.shape[1])))
         # Currently only chooses the maximum of the predicted array for storage
         inp.append(pred[0])
-        prediction = pred[0][0:_NOTE_CATS - 1]
-        duration_prediction = pred[0][_NOTE_CATS - 1]
+        prediction = pred[0]
 
-        draw = np.where(prediction == np.amax(prediction))[0][0]
+        index_np = np.arange(len(prediction))
+
+        draw = index_np[np.where(prediction == np.amax(prediction))[0][0]]
         draw_prob = prediction[draw]
-
-        args_to_remove = [draw, draw - 1, draw + 1]
+        args_to_remove = [draw, draw - 1]
+        if(draw < len(prediction) - 1):
+            args_to_remove.append(draw + 1)
+            
         prediction = np.delete(prediction, args_to_remove)
-
-        chord_notes = np.where(prediction > _CHORD_MULTIPLIER*draw_prob)[0]
+        index_np = np.delete(index_np, args_to_remove)
+        chord_notes = index_np[np.where(prediction > _CHORD_MULTIPLIER*draw_prob)[0]]
         draw = np.append(chord_notes, draw)
 
-        predictions.append((draw, duration_prediction))
+        predictions.append(draw)
         inp = inp[1:len(inp)]
-        i += 1        
+        i += 1             
     return predictions
 
 def predict_with_saved_weights_json(json_path, h5_path, seed_data, number_of_notes):
@@ -310,45 +364,39 @@ def predict_with_saved_weights_json(json_path, h5_path, seed_data, number_of_not
         pred = model.predict(np.reshape(inpNP, (1,inpNP.shape[0],inpNP.shape[1])))
         # Currently only chooses the maximum of the predicted array for storage
         inp.append(pred[0])
-        prediction = pred[0][0:_NOTE_CATS - 1]
-        duration_prediction = pred[0][_NOTE_CATS - 1]
+        prediction = pred[0]
 
-        draw = np.where(prediction == np.amax(prediction))[0][0]
+        index_np = np.arange(len(prediction))
+
+        draw = index_np[np.where(prediction == np.amax(prediction))[0][0]]
         draw_prob = prediction[draw]
+        args_to_remove = [draw, draw - 1]
+        if(draw < len(prediction) - 1):
+            args_to_remove.append(draw + 1)
 
-        args_to_remove = [draw, draw - 1, draw + 1]
         prediction = np.delete(prediction, args_to_remove)
-
-        chord_notes = np.where(prediction > _CHORD_MULTIPLIER*draw_prob)[0]
+        index_np = np.delete(index_np, args_to_remove)
+        chord_notes = index_np[np.where(prediction > _CHORD_MULTIPLIER*draw_prob)[0]]
         draw = np.append(chord_notes, draw)
 
-        predictions.append((draw, duration_prediction))
+        predictions.append(draw)
         inp = inp[1:len(inp)]
         i += 1        
     return predictions
 
 def create_MIDI_file_multilabel(predicted_notes, tempo_scale):
     s = stream.Stream()
-
-    for m,dur in predicted_notes:
+    for m in predicted_notes:
         arr = m[np.where(m != _NOTE_CATS - 1)]
-        smoothed_duration = find_smoothed_duration(dur)
-        if(arr.size == 0):
-            note_to_add = note.Rest()
-            note_to_add.duration = duration.Duration(quarterLength = smoothed_duration)
-            s.append()
-            continue
         if(arr.size == 1):
             n = note.Note()
-            n.duration = duration.Duration(quarterLength = smoothed_duration)
             n.pitch = pitch.Pitch(arr[0])
             s.append(n)
-            continue
-        if(arr.size > 1):
+        elif(arr.size > 1):
             midis = arr.tolist()
+            midis = [midi for midi in midis if midi != 106]
             pitches = list(map(lambda x: pitch.Pitch(x), midis))
             c = chord.Chord(pitches)
-            c.duration = duration.Duration(quarterLength = smoothed_duration)
             s.append(c)
         else:
             print("something went wrong m: {0} arr: {1}".format(m, arr))
@@ -358,6 +406,32 @@ def create_MIDI_file_multilabel(predicted_notes, tempo_scale):
     MIDI_filepath = os.getcwd() + '''/output/music_gen_output_{0}.mid'''.format(_DATETIME)
     stream_to_write.write('midi', fp= MIDI_filepath)
 
+def create_MIDI_file_ticwise(predicted_notes, tempo_scale):
+    s = stream.Stream()
+    basic_step = 1/_TICS_PER_MEASURE
+    for midi in range(_NOTE_CATS):
+        pred_idx = 0
+        curr_note = note.Note()
+        curr_note.pitch = pitch.Pitch(midi)
+        note_found = False
+        while(pred_idx < len(predicted_notes)):
+            if midi in predicted_notes[pred_idx]:
+                note_found = True
+                successive_count = 1
+                curr_note.offset = basic_step*pred_idx
+                while(pred_idx < len(predicted_notes) and midi in predicted_notes[pred_idx]):
+                    successive_count += 1
+                    pred_idx += 1
+                curr_note.duration = basic_step*successive_count
+            else:
+                pred_idx += 1
+        if(note_found):
+            s.append(curr_note)
+    stream_to_write = s.augmentOrDiminish(tempo_scale)
+    # write to midi file
+    MIDI_filepath = os.getcwd() + '''/output/music_gen_output_{0}.mid'''.format(_DATETIME)
+    stream_to_write.write('midi', fp= MIDI_filepath)
+    return s
 
 ## MEMORY OPTIMIZATIONS
 def restore_model_from_checkpoints():
