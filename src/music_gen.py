@@ -19,7 +19,7 @@ _DATE_TIME_FORMAT = "%d_%m_%Y_%H_%M_%S"
 _DATETIME = date_and_time = datetime.now().strftime(_DATE_TIME_FORMAT)
 _CHORD_MULTIPLIER = 0.75
 _NOTE_CATS = 106
-_BATCH_SIZE = 32
+_BATCH_SIZE = 64
 _EPOCHS = 160
 _LSTM_NODE_COUNT = 512
 _TICS_PER_MEASURE = 24
@@ -210,10 +210,6 @@ def clean_notewise_data(filepaths, sequence_length):
     scores = list(map(lambda x: converter.parse(os.getcwd() + '''/music/''' + x).parts.stream(), filepaths))
     encoded_data = list(map(getData, scores))
     sequenced_data = list(map(lambda x: getSeqsAndLabelsPermutations(x, sequence_length), encoded_data))
-    del scores
-    del encoded_data
-    del sequenced_data
-    gc.collect()
     SeqSet, SeqLabels = getSeqsAndLabels(sequenced_data, sequence_length)
     return (SeqSet, SeqLabels)
 
@@ -224,11 +220,6 @@ def clean_ticwise_data(filepaths, sequence_length):
     encoded_data = list(map(encode_all_elements, notes_for_scores))
     sequenced_data = list(map(lambda x: getSeqsAndLabelsPermutations(x, sequence_length), encoded_data))    
     SeqSet, SeqLabels = getSeqsAndLabels(sequenced_data, sequence_length)
-    del scores # Should get garbage collected automatically, but just in case
-    del notes_for_scores
-    del encoded_data
-    del sequenced_data
-    gc.collect()
     return (SeqSet, SeqLabels)
 
 # TODO: Experiment with deleting and recreating model each epoch to prevent memory leaks
