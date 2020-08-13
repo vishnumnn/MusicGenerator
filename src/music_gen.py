@@ -22,11 +22,11 @@ _DATE_TIME_FORMAT = "%Y_%m_%d_%H_%M_%S"
 _DATETIME = date_and_time = datetime.now().strftime(_DATE_TIME_FORMAT)
 _CHORD_MULTIPLIER = 0.75
 _NOTE_CATS = 106
-_BATCH_SIZE = 64
+_BATCH_SIZE = 32
 _EPOCHS = 80
-_LSTM_NODE_COUNT = 768
+_LSTM_NODE_COUNT = 512
 _TICS_PER_MEASURE = 24
-_SEQUENCE_LENGTH = 48
+_SEQUENCE_LENGTH = 60
 
 callbacks = [
 # This callback saves a SavedModel every x batches
@@ -266,8 +266,11 @@ def create_and_train_model(Seqs, Labels, Use_Checkpoint = False):
             input_shape=(_SEQUENCE_LENGTH, _NOTE_CATS),
             return_sequences=True
         )))
+        model.add(attention(return_sequences = True))
         model.add(Bidirectional(LSTM(_LSTM_NODE_COUNT, return_sequences = True)))
-        model.add(LSTM(_LSTM_NODE_COUNT))
+        model.add(attention(return_sequences = True))
+        model.add(Bidirectional(LSTM(_LSTM_NODE_COUNT)))
+        model.add(Dense(256))
         model.add(Dense(_NOTE_CATS, activation = 'sigmoid'))
         model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
 

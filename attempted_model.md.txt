@@ -1,0 +1,11 @@
+### Attempted Models
+
+LSTM (768) -> LSTM -> LSTM -> Dense(106) | 0.36
+
+BiLSTM (768) -> BiLSTM -> BiLSTM -> Dense(256|106) | 0.36
+
+# Seq_Len = 60
+
+ BiLSTM(512) -> attention -> LSTM -> Dense(256|106) | 0.3
+
+seq_len(60): BiLSTM(512) -> attention -> BiLSTM-> attention -> BiLSTM -> Dense(256|106) |
