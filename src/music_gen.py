@@ -4,33 +4,63 @@ from tensorflow import keras
 from keras.models import Sequential
 from keras.models import model_from_json
 from keras.layers import LSTM
+from keras.layers import Bidirectional
 from keras.layers import Dropout
-from keras.layers import Dense
+from keras.layers import Dense, Layer
 from keras.utils import plot_model
 from keras.layers import Activation
+from keras import backend
 from music21 import *
+from mido import MidiFile, MidiTrack, Message
 import math, os
 from datetime import datetime
 from numpy.random import choice
 import gc
 
 ## PARAMETER CONSTANTS
-_DATE_TIME_FORMAT = "%d_%m_%Y_%H_%M_%S"
+_DATE_TIME_FORMAT = "%Y_%m_%d_%H_%M_%S"
 _DATETIME = date_and_time = datetime.now().strftime(_DATE_TIME_FORMAT)
 _CHORD_MULTIPLIER = 0.75
 _NOTE_CATS = 106
-_BATCH_SIZE = 32
-_EPOCHS = 160
-_LSTM_NODE_COUNT = 512
+_BATCH_SIZE = 64
+_EPOCHS = 80
+_LSTM_NODE_COUNT = 768
 _TICS_PER_MEASURE = 24
-_SEQUENCE_LENGTH = 32#_TICS_PER_MEASURE*2 #number of quarter notes in a sequence. 12 tics per quarter note in 4/4
+_SEQUENCE_LENGTH = 48
 
 callbacks = [
 # This callback saves a SavedModel every x batches
 keras.callbacks.ModelCheckpoint(
     filepath= os.getcwd() + '/models/chkpts/ckpt-acc={accuracy:.2f}',
-    save_freq= 10000)
+    save_freq= 20000)
 ]
+
+class attention(Layer):
+    
+    def __init__(self, return_sequences=True):
+        self.return_sequences = return_sequences
+        super(attention,self).__init__()
+        
+    def build(self, input_shape):
+        
+        self.W=self.add_weight(name="att_weight", shape=(input_shape[-1],1),
+                               initializer="normal")
+        self.b=self.add_weight(name="att_bias", shape=(input_shape[1],1),
+                               initializer="zeros")
+        
+        super(attention,self).build(input_shape)
+        
+    def call(self, x):
+        
+        e = backend.tanh(backend.dot(x,self.W)+self.b)
+        a = backend.softmax(e, axis=1)
+        output = x*a
+        
+        if self.return_sequences:
+            return output
+        
+        return backend.sum(output, axis=1)
+
 ## Get notes and rests per instrument from score
 def notesAndRests(score):
     instruments = instrument.partitionByInstrument(score)
@@ -152,7 +182,7 @@ def encode_all_elements(elems):
     def process_window():
         nonlocal encoded_data_idx
         clean = encode_element_array(note_store)
-        span = int(round((window_end - window_start)* _TICS_PER_MEASURE))
+        span = int(round((window_end - window_start)* _TICS_PER_MEASURE - 0.35))
         for i in range(span):
             encoded_data[encoded_data_idx + i] = clean
         encoded_data_idx += span 
@@ -222,8 +252,6 @@ def clean_ticwise_data(filepaths, sequence_length):
     SeqSet, SeqLabels = getSeqsAndLabels(sequenced_data, sequence_length)
     return (SeqSet, SeqLabels)
 
-# TODO: Experiment with deleting and recreating model each epoch to prevent memory leaks
-# TODO: Factor in duration as a new feature
 ## Create and Train model without using generator to feed data.
 def create_and_train_model(Seqs, Labels, Use_Checkpoint = False):
     # Train Model
@@ -233,17 +261,18 @@ def create_and_train_model(Seqs, Labels, Use_Checkpoint = False):
     if(model == None):
         print("Nodes: ",_LSTM_NODE_COUNT, "Sequence length: ", _SEQUENCE_LENGTH)
         model = Sequential()
-        model.add(LSTM(
+        model.add(Bidirectional(LSTM(
             _LSTM_NODE_COUNT,
             input_shape=(_SEQUENCE_LENGTH, _NOTE_CATS),
             return_sequences=True
-        ))
-        model.add(LSTM(_LSTM_NODE_COUNT, return_sequences=True))
+        )))
+        model.add(Bidirectional(LSTM(_LSTM_NODE_COUNT, return_sequences = True)))
         model.add(LSTM(_LSTM_NODE_COUNT))
         model.add(Dense(_NOTE_CATS, activation = 'sigmoid'))
         model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
 
     model.fit(Seqs, Labels, epochs = _EPOCHS, batch_size = _BATCH_SIZE, callbacks = callbacks)
+    print(model.summary())
 
     # serialize model to JSON
     model_json = model.to_json()
@@ -406,32 +435,32 @@ def create_MIDI_file_multilabel(predicted_notes, tempo_scale):
     MIDI_filepath = os.getcwd() + '''/output/music_gen_output_{0}.mid'''.format(_DATETIME)
     stream_to_write.write('midi', fp= MIDI_filepath)
 
-def create_MIDI_file_ticwise(predicted_notes, tempo_scale):
-    s = stream.Stream()
-    basic_step = 1/_TICS_PER_MEASURE
-    for midi in range(_NOTE_CATS):
-        pred_idx = 0
-        curr_note = note.Note()
-        curr_note.pitch = pitch.Pitch(midi)
-        note_found = False
-        while(pred_idx < len(predicted_notes)):
-            if midi in predicted_notes[pred_idx]:
-                note_found = True
-                successive_count = 1
-                curr_note.offset = basic_step*pred_idx
-                while(pred_idx < len(predicted_notes) and midi in predicted_notes[pred_idx]):
-                    successive_count += 1
-                    pred_idx += 1
-                curr_note.duration = basic_step*successive_count
-            else:
-                pred_idx += 1
-        if(note_found):
-            s.append(curr_note)
-    stream_to_write = s.augmentOrDiminish(tempo_scale)
-    # write to midi file
+def condense_prediction_into_midi(predicted_notes, multiplier):
+    mid = MidiFile()
+    track = MidiTrack()
+    mid.tracks.append(track)
+    basic_step = mid.ticks_per_beat*multiplier/_TICS_PER_MEASURE
+    found_notes = {}
+    total_time = 0
+    midi_time = 0
+    for i, notes in enumerate(predicted_notes):
+        terminated = [note for note in found_notes if not note in notes]
+        for e in terminated:
+            delta_time = total_time - midi_time
+            track.append(Message('note_off', note=e, velocity=127, time = int(delta_time)))
+            midi_time += delta_time
+            found_notes.pop(e)
+        for e in found_notes:
+            found_notes[e] = 1
+        for e in [note for note in notes if not note in found_notes]:
+            found_notes[e] = basic_step
+            delta_time = total_time - midi_time
+            track.append(Message('note_on', note=e, velocity=127, time = int(delta_time)))
+            midi_time += delta_time
+        total_time += basic_step
     MIDI_filepath = os.getcwd() + '''/output/music_gen_output_{0}.mid'''.format(_DATETIME)
-    stream_to_write.write('midi', fp= MIDI_filepath)
-    return s
+    mid.save(MIDI_filepath)
+    return mid
 
 ## MEMORY OPTIMIZATIONS
 def restore_model_from_checkpoints():

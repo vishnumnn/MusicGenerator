@@ -13,7 +13,7 @@ PATHS_2 = ['Solo_Violin_Sonata_No._1_in_G_Minor_-_J._S._Bach_BWV_1001.mxl',
 PATHS_3 = ['Vitali_Chaconne_Solo_Violin.mxl']
 
 # Clean data
-Seqs, Labels = music_gen.cleanData(PATHS_3, 50)
+Seqs, Labels = music_gen.cleanData(PATHS_3, 72)
 print('''Overall shape of sequences data {0}'''.format(Seqs.shape))
 
 # Pick a random seed sequence to generate predictions (could test multiple seed prediction in future)
